@@ -1,0 +1,41 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Privacy first:** please don't attach camera footage, snapshots of people or your home, IP addresses,
+        RTSP URLs, passwords, pairing links or invite codes. Redact them from logs before pasting.
+        Security problems? Don't open an issue — see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: input
+    id: version
+    attributes:
+      label: Spectacle version / commit
+  - type: input
+    id: system
+    attributes:
+      label: Server OS, Node and ffmpeg versions
+      placeholder: "Ubuntu 24.04, Node 22.11, ffmpeg 6.1"
+  - type: input
+    id: camera
+    attributes:
+      label: Camera type and viewing device
+      placeholder: "Reolink E1 (RTSP) / Pixel 7, Chrome"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (redacted)
+      description: "`journalctl -u spectacle -n 100` — remove addresses and anything private"
+      render: text

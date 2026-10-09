@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Spectacle camera</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { padding: 0; background: #000; }
+  .cam { position: fixed; inset: 0; display: grid; place-items: center; }
+  .cam video { width: 100%; height: 100%; object-fit: contain; border-radius: 0; max-height: none; }
+  .hud { position: fixed; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 14px; padding-top: calc(14px + env(safe-area-inset-top)); background: linear-gradient(#000a, transparent); }
+  .hud .pill.rec::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--alert); animation: blink 1.4s infinite; }
+  .bottom { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); display: flex; gap: 8px; justify-content: center; background: linear-gradient(transparent, #000a); }
+  .dim { position: fixed; inset: 0; background: #000; display: none; color: #333; place-items: center; font-size: .8rem; }
+  .dim.on { display: grid; }
+  @keyframes blink { 50% { opacity: .2; } }
+</style>
+<script src="/camera.js" defer></script>
+</head>
+<body>
+<main id="setup" class="auth">
+  <svg class="mark" viewBox="0 0 32 32"><use href="/icon.svg#mark"/></svg>
+  <h1>Camera mode</h1>
+  <p class="muted" id="intro">This device will stream video to your family's Spectacle server, where it is recorded and checked for motion and wildlife.</p>
+  <div class="card stack" id="form">
+    <p class="small">Before starting:</p>
+    <ul class="small muted" style="margin:0;padding-left:18px">
+      <li>Point it only at places you're allowed to record. Never at bathrooms, other people's bedrooms, or into neighbours' homes or yards.</li>
+      <li>Tell the people who live with you (and guests) that this camera records. In many places a visible "camera in use" sign is required or wise.</li>
+      <li>Only video is sent. The microphone is never used.</li>
+      <li>Keep this page open and the phone plugged in. Browsers stop the camera if you switch apps or lock the screen with this page hidden.</li>
+    </ul>
+    <label class="check"><input type="checkbox" id="ack"> I understand and have permission to record here.</label>
+    <label class="f">Lens<select id="facing"><option value="environment">Back camera</option><option value="user">Front camera</option></select></label>
+    <button class="btn primary" id="start" disabled>Start camera</button>
+    <div class="err" id="err"></div>
+  </div>
+  <p class="small muted" style="text-align:center"><a href="/legal/privacy.html">Privacy</a> · <a href="/legal/recording-laws.html">Recording laws</a></p>
+</main>
+<div class="cam" id="cam" hidden>
+  <video id="v" autoplay muted playsinline></video>
+  <div class="hud"><span class="pill rec" id="state">REC</span><span class="mono" id="name"></span></div>
+  <div class="bottom"><button class="btn" id="dimBtn">Dim screen</button><button class="btn" id="flip">Flip</button><button class="btn danger" id="stop">Stop</button></div>
+  <div class="dim" id="dim">Recording · tap to wake</div>
+</div>
+</body>
+</html>

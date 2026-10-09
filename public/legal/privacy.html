@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Privacy policy · Spectacle</title><link rel="stylesheet" href="/style.css"></head>
+<body><main class="legal">
+<p><a href="/">← Back to Spectacle</a></p>
+<h1>Privacy policy</h1>
+<p class="muted">Version 2026-10-09. This policy covers this self-hosted copy of Spectacle. The household member who installed it (the "administrator") is responsible for it and for the data it holds.</p>
+
+<h2>The short version</h2>
+<ul>
+<li>Spectacle runs on a computer in your home. Video, photos, accounts and logs are stored there, not on a cloud service run by the app's authors.</li>
+<li>Bug, flower and bird identification happens on that computer. Your photos are never sent anywhere to be identified.</li>
+<li>Family members can see who is online and which camera they're watching.</li>
+<li>Recordings are deleted automatically after the retention period (14 days by default).</li>
+</ul>
+
+<h2>What is collected</h2>
+<ul>
+<li><b>Video from cameras</b>, recorded continuously (24/7) when recording is on. Audio is off by default and is only recorded if the administrator turns it on for an IP camera.</li>
+<li><b>Motion events</b>: the time, camera, and a snapshot image.</li>
+<li><b>Biome log</b>: photos cropped from camera frames or uploaded by you, the species the app thinks it shows, the time and camera.</li>
+<li><b>Accounts</b>: name, username, a scrypt hash of your password (never the password itself), your notification settings, the date you accepted these terms, and sign-in sessions.</li>
+<li><b>Presence</b>: while you have the app open, whether you're online, roughly which page you're on, which cameras you're viewing, and whether you're on a phone or computer. This is shown live to other signed-in family members and is not stored.</li>
+<li><b>Push subscriptions</b>: if you turn on phone notifications, your browser gives the server a delivery address at your browser maker's push service.</li>
+<li><b>Family notes</b> sent from the Family page are delivered live and not stored.</li>
+</ul>
+
+<h2>Who can see it</h2>
+<ul>
+<li>Every signed-in family member can watch all cameras, recordings, motion events and the biome log.</li>
+<li>Administrators can add and remove cameras and members.</li>
+<li>Anyone with physical or administrator access to the server computer can read everything stored on it.</li>
+</ul>
+
+<h2>What leaves your home</h2>
+<ul>
+<li><b>Push notifications</b> are delivered through your browser maker's push service (for Chrome on Android, Google's Firebase Cloud Messaging; Firefox uses Mozilla's service). Message contents are end-to-end encrypted to your device; the service sees only timing and size. Notifications contain the camera name, time, and species names, never video or images.</li>
+<li><b>ntfy</b> (optional): if the administrator configures an ntfy address, motion alerts with the camera name and time go to that server.</li>
+<li><b>Species database download</b> (optional, off unless chosen): when the administrator runs <code>npm run species-db</code>, the server downloads public data from Wikipedia, Wikimedia Commons and GBIF. Only species names are sent; nothing about your home.</li>
+<li><b>Remote access</b>: if the administrator uses Tailscale or another tunnel, traffic passes through that provider encrypted.</li>
+</ul>
+<p>Spectacle contains no analytics, advertising or tracking code.</p>
+
+<h2>How long it's kept</h2>
+<ul>
+<li>Recordings and motion snapshots: the retention period set in <code>config.json</code> (default 14 days), or less if the disk runs low.</li>
+<li>Biome photos and log: until deleted by the administrator (they are ordinary files in the <code>data/biome</code> folder).</li>
+<li>Accounts: until deleted. Sessions expire after 30 days; invite codes after 7 days.</li>
+</ul>
+
+<h2>Your choices and rights</h2>
+<ul>
+<li><b>Download your data</b>: Settings → Account → Download my data.</li>
+<li><b>Delete your account</b>: Settings → Account → Delete my account. Footage of the household is not personal to one account and is kept until it expires; ask the administrator if you want specific footage removed.</li>
+<li><b>Notifications</b>: turn them off or mute cameras in Settings at any time.</li>
+<li>If you appear in footage and are not a member (for example a guest), contact the administrator to view or delete recordings of you. Depending on where you live (for example under the GDPR in the EU/UK or state privacy laws in the US), you may have a legal right to this.</li>
+</ul>
+
+<h2>Security</h2>
+<p>Passwords are hashed with scrypt; sessions use random tokens in HttpOnly, SameSite cookies; repeated wrong passwords are rate-limited; camera pairing links can be revoked by generating a new one. Use the HTTPS address (or Tailscale) so traffic is encrypted. Do not expose the server directly to the internet with port forwarding.</p>
+
+<h2>Children</h2>
+<p>Children may appear in household footage. Accounts are intended for adults and supervised teens the administrator chooses to invite.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes in a new version of Spectacle, members are asked to review and accept it again the next time they sign in.</p>
+
+<h2>Contact</h2>
+<p>Questions about this installation go to the household administrator.</p>
+</main></body></html>

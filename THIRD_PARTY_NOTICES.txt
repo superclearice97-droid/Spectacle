@@ -1,0 +1,58 @@
+Spectacle — Third-party notices
+==============================
+
+Spectacle itself is released under the MIT License (see LICENSE). It has no npm
+dependencies. The following third-party materials are bundled with it or
+downloaded by it.
+
+------------------------------------------------------------------------------
+1. Species identification models (bundled, in models/)
+------------------------------------------------------------------------------
+Files:
+  mobilenet_v2_1.0_224_inat_insect_quant.tflite + inat_insect_labels.txt
+  mobilenet_v2_1.0_224_inat_plant_quant.tflite  + inat_plant_labels.txt
+  mobilenet_v2_1.0_224_inat_bird_quant.tflite   + inat_bird_labels.txt
+Source:   https://github.com/google-coral/test_data
+Owner:    Google LLC (Coral project). MobileNet V2 classifiers trained on the
+          iNaturalist 2017 dataset.
+License:  Apache License 2.0 — full text in models/LICENSE-coral-test-data.txt
+Changes:  none (files are unmodified). Spectacle runs them with its own
+          interpreter (server/lib/tflite.js).
+
+------------------------------------------------------------------------------
+2. Test images (bundled, in test-images/; used only by `npm test`)
+------------------------------------------------------------------------------
+dragonfly.bmp, parrot.jpg, sunflower.bmp from https://github.com/google-coral/test_data
+License: Apache License 2.0 (same repository and licence file as above).
+The screenshots in docs/screenshots/ show these same test images playing as simulated cameras.
+
+------------------------------------------------------------------------------
+3. Offline species database (optional; downloaded by `npm run species-db`, not bundled)
+------------------------------------------------------------------------------
+a) Species explanations — Wikipedia (https://en.wikipedia.org), via the
+   Wikimedia REST API. Text licensed CC BY-SA 4.0
+   (https://creativecommons.org/licenses/by-sa/4.0/). Each entry keeps the
+   article title and URL; the app shows this attribution beside the text and
+   writes it into each species folder's info.md. If you redistribute that
+   text, you must keep the attribution and share it under the same licence.
+b) Classification — GBIF Backbone Taxonomy (https://www.gbif.org), CC BY 4.0.
+   Citation: GBIF Secretariat, GBIF Backbone Taxonomy, https://doi.org/10.15468/39omei
+c) Reference photos (optional) — Wikimedia Commons. Only freely licensed
+   images (CC / public domain) are kept. Each photo's author, licence and
+   source page are stored with it and shown in the app.
+
+------------------------------------------------------------------------------
+4. External programs (not bundled; installed by your system package manager)
+------------------------------------------------------------------------------
+FFmpeg (https://ffmpeg.org) — LGPL 2.1+/GPL 2+ depending on build. Spectacle
+calls the `ffmpeg` command; it does not include or link FFmpeg code.
+Node.js (https://nodejs.org) — MIT License.
+OpenSSL (used by install.sh to make a certificate) — Apache License 2.0.
+
+------------------------------------------------------------------------------
+5. Services used at run time (optional)
+------------------------------------------------------------------------------
+Web Push delivery uses your browser vendor's push service (e.g. Google Firebase
+Cloud Messaging for Chrome). ntfy (https://ntfy.sh) if you configure it.
+Tailscale (https://tailscale.com) if you choose it for remote access. These
+services have their own terms.

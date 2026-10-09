@@ -1,0 +1,12 @@
+{
+  "appName": "Spectacle",
+  "http":  { "enabled": true, "host": "127.0.0.1", "port": 8080 },
+  "https": { "enabled": true, "host": "0.0.0.0", "port": 8443, "cert": "certs/cert.pem", "key": "certs/key.pem" },
+  "publicUrl": "",
+  "contactEmail": "",
+  "recording": { "segmentMinutes": 10, "retentionDays": 14, "minFreeGB": 5 },
+  "live": { "fps": 8, "width": 960, "quality": 7 },
+  "motion": { "fps": 4, "cooldownSec": 60 },
+  "biome": { "enabled": true, "intervalSec": 60, "minConfidence": 0.6, "dedupeMinutes": 30, "groups": ["insect", "plant", "bird"], "tiles": true },
+  "ntfy": { "url": "" }
+}
