@@ -75,7 +75,11 @@ class AlertService : Service() {
         connect()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Started again (e.g. right after signing in): connect now instead of waiting for the next retry.
+        main.post { if (socket == null) { backoff = 2000; connect() } }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         stopped = true

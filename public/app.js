@@ -400,6 +400,7 @@ async function boot() {
   S.me = st.user;
   if (st.consentStale) return authPage('consent');
   $('#top').hidden = false; $('#tabs').hidden = false; renderArmed();
+  if (IN_APP && window.SpectacleAndroid.signedIn) window.SpectacleAndroid.signedIn();
   if (join) history.replaceState(null, '', '/#cameras');
   connect();
   if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});

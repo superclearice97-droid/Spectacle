@@ -73,6 +73,7 @@ class MainActivity : Activity() {
                 else handler.cancel()
             }
             override fun onPageFinished(view: WebView, url: String) {
+                maybeOnboard(url)
                 val cameraMode = Uri.parse(url).path?.startsWith("/camera") == true
                 if (cameraMode) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -98,6 +99,18 @@ class MainActivity : Activity() {
         val path = intent.getStringExtra(EXTRA_PATH) ?: "/"
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(server + path)
 
+        startAlerts()
+    }
+
+    /** Ask for notifications / background permission only once the person is signed in, never on the sign-up screen. */
+    private var onboarded = false
+    private fun maybeOnboard(url: String) {
+        if (onboarded) return
+        val path = Uri.parse(url).path ?: ""
+        if (path.startsWith("/camera")) return // a camera phone doesn't need alerts prompts
+        val signedIn = CookieManager.getInstance().getCookie(prefs.server)?.contains("sp_session=") == true
+        if (!signedIn) return
+        onboarded = true
         askNotifications()
         startAlerts()
     }
@@ -164,6 +177,8 @@ class MainActivity : Activity() {
     /** Small set of app features the web pages can use (window.SpectacleAndroid). */
     inner class Bridge {
         @JavascriptInterface fun version(): String = BuildConfig.VERSION_NAME
+        /** Called by the web app once the person is signed in (sign-up doesn't reload the page). */
+        @JavascriptInterface fun signedIn() = runOnUiThread { CookieManager.getInstance().flush(); maybeOnboard(web.url ?: "") }
         @JavascriptInterface fun dim(on: Boolean) = runOnUiThread {
             window.attributes = window.attributes.apply { screenBrightness = if (on) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
         }
