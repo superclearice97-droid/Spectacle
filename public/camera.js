@@ -11,8 +11,10 @@ $('#ack').onchange = e => { $('#start').disabled = !e.target.checked; };
 $('#start').onclick = () => start().catch(e => { $('#err').textContent = e.message; });
 $('#stop').onclick = () => { running = false; teardown(); location.reload(); };
 $('#flip').onclick = async () => { $('#facing').value = $('#facing').value === 'user' ? 'environment' : 'user'; teardown(); await start(); };
-$('#dimBtn').onclick = () => $('#dim').classList.add('on');
-$('#dim').onclick = () => $('#dim').classList.remove('on');
+// In the Android app, "Dim screen" also turns the backlight right down.
+const bridge = window.SpectacleAndroid;
+$('#dimBtn').onclick = () => { $('#dim').classList.add('on'); bridge && bridge.dim(true); };
+$('#dim').onclick = () => { $('#dim').classList.remove('on'); bridge && bridge.dim(false); };
 
 function pickMime() {
   for (const m of ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm;codecs=h264', 'video/webm']) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;

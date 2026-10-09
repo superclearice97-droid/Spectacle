@@ -66,8 +66,43 @@ jobs:
             Spectacle.apk
             Spectacle.apk.sha256
 
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - uses: actions/download-artifact@v4
+        with:
+          name: Spectacle-apk
+      - name: Start a test Spectacle server
+        run: bash android/ci/start-server.sh
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Run on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash android/ci/emulator-test.sh
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, emulator-test]   # only publish an APK that passed the emulator test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Spectacle-apk
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -79,4 +114,5 @@ jobs:
 
           Already have Spectacle? Installing this version updates it and keeps you signed in.
           EOF
-          gh release create "$GITHUB_REF_NAME" Spectacle.apk Spectacle.apk.sha256 --title "Spectacle $VERSION_NAME" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" Spectacle.apk Spectacle.apk.sha256 --title "Spectacle ${GITHUB_REF_NAME#v}" --notes-file notes.md
+

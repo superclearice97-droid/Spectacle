@@ -166,7 +166,7 @@ async function pageEvents() {
 }
 async function pageEvent(id) {
   const { events } = await api('/api/events?limit=500'); const e = events.find(x => x.id === id); if (!e) throw new Error('That event has expired');
-  view.innerHTML = `<div class="row" style="margin-bottom:10px"><a class="btn ghost" href="#events">←</a><h1 style="margin:0">${esc(e.camName)}</h1></div>
+  view.innerHTML = `<div class="row" style="margin-bottom:10px"><a class="btn ghost" href="#events" aria-label="Back to motion">←</a><h1 style="margin:0">${esc(e.camName)}</h1></div>
     <p class="mono muted">${esc(new Date(e.ts).toLocaleString())}</p>
     ${e.segment ? `<video controls playsinline autoplay muted src="/media/rec/${esc(e.camId)}/${esc(e.segment.file)}#t=${e.segment.offset}"></video>` : e.snapshot ? `<img class="refimg" src="/media/events/${esc(e.camId)}/${esc(e.snapshot)}" alt="Snapshot">` : ''}
     <div class="row" style="margin-top:12px"><a class="btn" href="#cam/${esc(e.camId)}">Open live view</a>${e.snapshot ? `<a class="btn ghost" href="/media/events/${esc(e.camId)}/${esc(e.snapshot)}" download>Download snapshot</a>` : ''}</div>`;
@@ -219,7 +219,7 @@ function showCandidates(el, cands) {
   $$('[data-save]', el).forEach(b => b.onclick = async () => { b.disabled = true; try { const r = await api('/api/identify/save', { method: 'POST', body: { label: b.dataset.save, group: b.dataset.g } }); location.hash = '#biome/' + r.species.id; } catch (e) { toast('Could not save', e.message); b.disabled = false; } });
 }
 async function pageIdentify() {
-  view.innerHTML = `<div class="row" style="margin-bottom:8px"><a class="btn ghost" href="#biome">←</a><h1 style="margin:0">Identify a photo</h1></div>
+  view.innerHTML = `<div class="row" style="margin-bottom:8px"><a class="btn ghost" href="#biome" aria-label="Back to biome">←</a><h1 style="margin:0">Identify a photo</h1></div>
     <div class="card stack"><p class="muted">Snap a bug, flower or bird. It's identified on your own server — the photo never leaves your home.</p>
     <label class="btn primary" style="width:fit-content">Choose or take a photo<input type="file" accept="image/*" capture="environment" id="pick" hidden></label>
     <img id="prev" class="refimg" hidden alt="Your photo"><div id="out"></div></div>`;
@@ -243,10 +243,11 @@ async function pageFamily() {
   $('#say').onsubmit = e => { e.preventDefault(); const t = $('#sayText').value.trim(); if (t && S.ws) { S.ws.send(JSON.stringify({ type: 'ping-family', text: t })); $('#sayText').value = ''; } };
   if ($('#inv')) $('#inv').onclick = async () => {
     const r = await api('/api/invites', { method: 'POST', body: { role: $('#invAdmin').checked ? 'admin' : 'member' } });
-    const link = location.origin + '/#join/' + r.code;
-    $('#invOut').innerHTML = `<input type="text" readonly value="${esc(link)}"><div class="row" style="margin-top:8px"><button class="btn" id="copyInv">Copy</button>${navigator.share ? '<button class="btn" id="shareInv">Share…</button>' : ''}</div>`;
-    $('#copyInv').onclick = () => navigator.clipboard.writeText(link).then(() => toast('Copied'));
-    if ($('#shareInv')) $('#shareInv').onclick = () => navigator.share({ title: 'Join our Spectacle', url: link });
+    const link = location.origin + '/#join/' + r.code + (r.fp ? '?fp=' + r.fp : '');
+    const msg = `You're invited to our family cameras on Spectacle!\n\n1) Install the app on your Android phone: ${r.appUrl}\n\n2) Copy this whole message, open Spectacle and tap "Paste my invite".\n\nInvite (works once, for 7 days): ${link}`;
+    $('#invOut').innerHTML = `<label class="f" style="margin-top:8px">Message to send<textarea readonly rows="7">${esc(msg)}</textarea></label><div class="row" style="margin-top:8px">${navigator.share ? '<button class="btn primary" id="shareInv">Send by text or email…</button>' : ''}<button class="btn" id="copyInv">Copy message</button></div><p class="small muted">Send it privately, to one person. Anyone who has it can join until it's used.</p>`;
+    $('#copyInv').onclick = () => copyText(msg);
+    if ($('#shareInv')) $('#shareInv').onclick = () => navigator.share({ title: 'Join our Spectacle', text: msg }).catch(() => {});
   };
 }
 function renderFamilyPeople() {
@@ -264,19 +265,22 @@ function renderFamilyPeople() {
 async function pageSettings() {
   await loadCameras();
   const sys = await api('/api/system');
-  const pushOk = 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
+  const pushOk = !IN_APP && 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
   const sub = pushOk ? await navigator.serviceWorker.getRegistration().then(r => r && r.pushManager.getSubscription()).catch(() => null) : null;
   const me = S.me;
   view.innerHTML = `<h1>Settings</h1><div class="stack">
   <section class="card"><h2>Notifications</h2>
-    <div class="setting"><div><b>Phone notifications</b><div class="small muted">${pushOk ? (sub ? 'On for this device.' : 'Get motion alerts even when the app is closed.') : 'Needs the app opened over a trusted HTTPS address (see README: Tailscale).'}</div></div><button class="btn ${sub ? '' : 'primary'}" id="push" ${pushOk ? '' : 'disabled'}>${sub ? 'Send test' : 'Turn on'}</button></div>
-    <div class="setting"><div><b>Motion alerts for me</b><div class="small muted">Pausing only affects you.</div></div><label class="switch"><input type="checkbox" id="pNotify" ${me.prefs.notify ? 'checked' : ''}><span></span></label></div>
-    <div class="setting"><div><b>New-species alerts</b><div class="small muted">When the biome log finds something new.</div></div><label class="switch"><input type="checkbox" id="pBiome" ${me.prefs.biomeAlerts !== false ? 'checked' : ''}><span></span></label></div>
+    ${IN_APP ? `<div class="setting"><div><b>Alerts on this phone</b><div class="small muted">Spectacle stays connected to your home server and alerts you, even when the app is closed. No outside push service is used.</div></div><label class="switch"><input type="checkbox" id="appAlerts" aria-label="Alerts on this phone" ${window.SpectacleAndroid.backgroundAlerts() ? 'checked' : ''}><span></span></label></div>
+    ${window.SpectacleAndroid.batteryOk() ? '' : '<div class="setting"><div><b>Alerts may be late</b><div class="small muted">Your phone may pause Spectacle to save battery.</div></div><button class="btn primary" id="appBattery">Fix this</button></div>'}`
+    : `<div class="setting"><div><b>Phone notifications</b><div class="small muted">${pushOk ? (sub ? 'On for this device.' : 'Get motion alerts even when the app is closed.') : 'Needs the app opened over a trusted HTTPS address (see README: Tailscale).'}</div></div><button class="btn ${sub ? '' : 'primary'}" id="push" ${pushOk ? '' : 'disabled'}>${sub ? 'Send test' : 'Turn on'}</button></div>`}
+    <div class="setting"><div><b>Motion alerts for me</b><div class="small muted">Pausing only affects you.</div></div><label class="switch"><input type="checkbox" aria-label="Motion alerts for me" id="pNotify" ${me.prefs.notify ? 'checked' : ''}><span></span></label></div>
+    <div class="setting"><div><b>New-species alerts</b><div class="small muted">When the biome log finds something new.</div></div><label class="switch"><input type="checkbox" aria-label="New-species alerts" id="pBiome" ${me.prefs.biomeAlerts !== false ? 'checked' : ''}><span></span></label></div>
     ${S.cameras.length ? `<div class="setting" style="display:block"><b>Mute cameras for me</b><div class="row" style="margin-top:8px">${S.cameras.map(c => `<label class="check"><input type="checkbox" data-mute="${esc(c.id)}" ${me.prefs.mutedCams.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</div></div>` : ''}
   </section>
   ${me.role === 'admin' ? camerasAdminHtml() : ''}
   <section class="card"><h2>Account</h2>
     <form id="pw" class="stack"><label class="f">Current password<input type="password" id="pw1" autocomplete="current-password"></label><label class="f">New password (10+ characters)<input type="password" id="pw2" autocomplete="new-password"></label><button class="btn">Change password</button></form>
+    ${IN_APP ? `<p class="small muted" style="margin-top:14px">Spectacle app ${esc(window.SpectacleAndroid.version())}</p><button class="btn ghost" id="appDisconnect">Disconnect this phone</button>` : ''}
     <div class="row" style="margin-top:14px"><a class="btn ghost" href="/api/me/export">Download my data</a><button class="btn ghost" id="logout">Sign out</button><button class="btn danger" id="delme">Delete my account</button></div>
   </section>
   <section class="card small"><h2>System</h2><div class="stack">
@@ -291,7 +295,10 @@ async function pageSettings() {
   $('#pNotify').onchange = e => savePrefs({ notify: e.target.checked });
   $('#pBiome').onchange = e => savePrefs({ biomeAlerts: e.target.checked });
   $$('[data-mute]').forEach(c => c.onchange = () => savePrefs({ mutedCams: $$('[data-mute]').filter(x => x.checked).map(x => x.dataset.mute) }));
-  $('#push').onclick = async () => { try { if (!sub) { await enablePush(); toast('Notifications on'); pageSettings(); } else { await api('/api/push/test', { method: 'POST' }); } } catch (e) { toast('Could not enable', e.message); } };
+  if ($('#appAlerts')) $('#appAlerts').onchange = e => window.SpectacleAndroid.setBackgroundAlerts(e.target.checked);
+  if ($('#appBattery')) $('#appBattery').onclick = () => window.SpectacleAndroid.openBattery();
+  if ($('#appDisconnect')) $('#appDisconnect').onclick = () => window.SpectacleAndroid.disconnect();
+  if ($('#push')) $('#push').onclick = async () => { try { if (!sub) { await enablePush(); toast('Notifications on'); pageSettings(); } else { await api('/api/push/test', { method: 'POST' }); } } catch (e) { toast('Could not enable', e.message); } };
   $('#pw').onsubmit = async e => { e.preventDefault(); try { await api('/api/me/password', { method: 'POST', body: { current: $('#pw1').value, next: $('#pw2').value } }); toast('Password changed'); e.target.reset(); } catch (err) { toast('Not changed', err.message); } };
   $('#logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); S.me = null; S.ws && S.ws.close(); boot(); };
   $('#delme').onclick = async () => { if (!confirm('Delete your account? This can\'t be undone. Camera footage belongs to the household and stays.')) return; try { await api('/api/me', { method: 'DELETE' }); S.me = null; boot(); } catch (e) { toast('Not deleted', e.message); } };
@@ -332,13 +339,18 @@ function bindCameraAdmin() {
   $$('[data-del]').forEach(b => b.onclick = async () => { if (!confirm('Remove this camera? Existing recordings stay until the retention period ends.')) return; await api('/api/cameras/' + b.dataset.del, { method: 'DELETE' }); pageSettings(); });
   $$('[data-pair]').forEach(b => b.onclick = async () => {
     const r = await api(`/api/cameras/${b.dataset.pair}/pair`, { method: 'POST' });
-    const link = location.origin + '/camera#token=' + r.token;
+    const link = location.origin + '/camera#token=' + r.token + (r.fp ? '&fp=' + r.fp : '');
+    const msg = `Spectacle camera setup\n\n1) On the phone that will be the camera, install: ${r.appUrl}\n\n2) Copy this message, open Spectacle, tap "Paste my invite".\n\nCamera link: ${link}`;
     const out = $(`[data-pairout="${CSS.escape(b.dataset.pair)}"]`);
-    out.innerHTML = `<input type="text" readonly value="${esc(link)}"><p class="small muted">Anyone with this link can stream as this camera. Creating a new link disables the old one.</p><div class="row"><button type="button" class="btn" data-c>Copy</button>${navigator.share ? '<button type="button" class="btn" data-s>Share…</button>' : ''}</div>`;
-    $('[data-c]', out).onclick = () => navigator.clipboard.writeText(link).then(() => toast('Copied'));
-    if ($('[data-s]', out)) $('[data-s]', out).onclick = () => navigator.share({ title: 'Spectacle camera link', url: link });
+    out.innerHTML = `<textarea readonly rows="6">${esc(msg)}</textarea><p class="small muted">Anyone with this link can stream as this camera. Creating a new link disables the old one.</p><div class="row">${navigator.share ? '<button type="button" class="btn primary" data-s>Send…</button>' : ''}<button type="button" class="btn" data-c>Copy message</button></div>`;
+    $('[data-c]', out).onclick = () => copyText(msg);
+    if ($('[data-s]', out)) $('[data-s]', out).onclick = () => navigator.share({ title: 'Spectacle camera link', text: msg }).catch(() => {});
   });
 }
+function copyText(t) {
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Copied'), () => { toast('Press and hold the text to copy it'); });
+}
+const IN_APP = !!window.SpectacleAndroid;
 async function enablePush() {
   const reg = await navigator.serviceWorker.register('/sw.js');
   const perm = await Notification.requestPermission(); if (perm !== 'granted') throw new Error('Notifications are blocked for this site');
@@ -356,7 +368,8 @@ function authPage(mode, invite) {
   $('#top').hidden = true; $('#tabs').hidden = true;
   const title = { setup: 'Set up Spectacle', login: 'Welcome back', join: 'Join your family', consent: 'Updated terms' }[mode];
   const sub = { setup: 'Create the admin account. You\'ll add cameras and invite family next.', login: 'Sign in to see your cameras.', join: 'Create your account with the invite you received.', consent: 'Please review and accept the updated terms to continue.' }[mode];
-  view.innerHTML = `<div class="auth"><svg class="mark" viewBox="0 0 32 32"><use href="/icon.svg#mark"/></svg><h1>${title}</h1><p class="muted">${sub}</p>
+  const appCard = mode === 'join' && !IN_APP && /Android/i.test(navigator.userAgent) ? `<div class="card stack" style="margin-bottom:14px"><h2>Use the Spectacle app</h2><p class="small">It's easier and sends you alerts. Install it, then come back to this page and tap "Open in the app".</p><div class="row"><a class="btn primary" href="${esc(S.appUrl || '#')}">1. Get the app</a><a class="btn" href="spectacle://join?link=${encodeURIComponent(location.href)}">2. Open in the app</a></div></div>` : '';
+  view.innerHTML = `<div class="auth"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><use href="/icon.svg#mark"/></svg><h1>${title}</h1><p class="muted">${sub}</p>${appCard}
    <form class="card stack" id="af">
     ${mode !== 'consent' ? `${mode !== 'login' ? '<label class="f">Your name<input type="text" name="name" autocomplete="name" required maxlength="40"></label>' : ''}
     <label class="f">Username<input type="text" name="username" autocomplete="username" required autocapitalize="none"></label>
@@ -380,8 +393,8 @@ function authPage(mode, invite) {
 
 async function boot() {
   const st = await api('/api/state', { allow401: true });
-  S.vapidKey = st.vapidKey; S.armed = st.armed;
-  const join = /^#join\/(.+)$/.exec(location.hash);
+  S.vapidKey = st.vapidKey; S.armed = st.armed; S.appUrl = st.appUrl;
+  const join = /^#join\/([^?&]+)/.exec(location.hash);
   if (st.setupNeeded) return authPage('setup');
   if (!st.user) return join ? authPage('join', join[1]) : authPage('login');
   S.me = st.user;
@@ -392,6 +405,8 @@ async function boot() {
   if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
   render();
 }
+// Give every on/off switch a spoken name for screen readers (TalkBack).
+new MutationObserver(() => $$('.switch input:not([aria-label])').forEach(i => { const t = i.closest('.setting')?.querySelector('b, span')?.textContent?.trim(); if (t) i.setAttribute('aria-label', t); })).observe(view, { childList: true, subtree: true });
 // Inline handlers are blocked by our Content-Security-Policy, so delegate instead.
 document.addEventListener('focusin', e => { if (e.target.matches('input[readonly]')) e.target.select(); });
 document.addEventListener('input', e => { if (e.target.matches('input[type=range]') && e.target.previousElementSibling) e.target.previousElementSibling.value = e.target.value; });

@@ -2,3 +2,6 @@ data/
 certs/
 config.json
 node_modules/
+*.jks
+*.keystore
+keystore-b64.txt

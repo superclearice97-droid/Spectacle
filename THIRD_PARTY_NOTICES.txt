@@ -42,7 +42,19 @@ c) Reference photos (optional) — Wikimedia Commons. Only freely licensed
    source page are stored with it and shown in the app.
 
 ------------------------------------------------------------------------------
-4. External programs (not bundled; installed by your system package manager)
+4. Android app (bundled inside Spectacle.apk)
+------------------------------------------------------------------------------
+OkHttp 4.12.0 — Copyright Square, Inc. — Apache License 2.0
+  https://github.com/square/okhttp
+Okio — Copyright Square, Inc. — Apache License 2.0
+  https://github.com/square/okio
+Kotlin Standard Library — Copyright JetBrains s.r.o. and Kotlin contributors — Apache License 2.0
+  https://github.com/JetBrains/kotlin
+The Apache License 2.0 text is in models/LICENSE-coral-test-data.txt.
+The app's web screens run in Android System WebView (part of Android, not bundled).
+
+------------------------------------------------------------------------------
+5. External programs (not bundled; installed by your system package manager)
 ------------------------------------------------------------------------------
 FFmpeg (https://ffmpeg.org) — LGPL 2.1+/GPL 2+ depending on build. Spectacle
 calls the `ffmpeg` command; it does not include or link FFmpeg code.
@@ -50,7 +62,7 @@ Node.js (https://nodejs.org) — MIT License.
 OpenSSL (used by install.sh to make a certificate) — Apache License 2.0.
 
 ------------------------------------------------------------------------------
-5. Services used at run time (optional)
+6. Services used at run time (optional)
 ------------------------------------------------------------------------------
 Web Push delivery uses your browser vendor's push service (e.g. Google Firebase
 Cloud Messaging for Chrome). ntfy (https://ntfy.sh) if you configure it.

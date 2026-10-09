@@ -29,6 +29,7 @@ const hub = {
   presence() {
     const byUser = new Map();
     for (const c of clients.values()) {
+      if (c.bg) continue; // the app's background alert connection isn't "being online"
       const p = byUser.get(c.user.id) || { id: c.user.id, name: c.user.name, color: c.user.color, devices: 0, viewing: new Set(), page: c.view.page };
       p.devices++; (c.view.cams || []).forEach(id => p.viewing.add(id)); if (c.view.focus) p.page = c.view.page;
       byUser.set(c.user.id, p);
@@ -135,7 +136,7 @@ async function handle(req, res) {
   const need = role => { if (!user) { json(res, 401, { error: 'Please sign in' }); return false; } if (role === 'admin' && user.role !== 'admin') { json(res, 403, { error: 'Only the family admin can do that' }); return false; } return true; };
   let mm;
 
-  if (p === '/api/state' && m === 'GET') return json(res, 200, { appName: cfg.appName, setupNeeded: !auth.hasUsers(), user: auth.publicUser(user), vapidKey: cfg.secrets.vapid.publicKey, armed: settings.data.armed, legalVersion: LEGAL_VERSION, consentStale: user ? user.consent.version !== LEGAL_VERSION : false });
+  if (p === '/api/state' && m === 'GET') return json(res, 200, { appName: cfg.appName, setupNeeded: !auth.hasUsers(), user: auth.publicUser(user), vapidKey: cfg.secrets.vapid.publicKey, armed: settings.data.armed, legalVersion: LEGAL_VERSION, appUrl: cfg.appDownloadUrl, consentStale: user ? user.consent.version !== LEGAL_VERSION : false });
   if (p === '/api/setup' && m === 'POST') {
     if (auth.hasUsers()) return json(res, 409, { error: 'Already set up' });
     const b = await bodyJSON(req); const u = auth.createUser({ ...b, role: 'admin' });
@@ -181,7 +182,7 @@ async function handle(req, res) {
   if (p === '/api/push/test' && m === 'POST') { if (!need()) return; await notifier.alert({ kind: 'test', title: 'Spectacle test', body: `Hi ${user.name}, notifications are working.` }); return json(res, 200, { ok: true, devices: (user.push || []).length }); }
 
   if (p === '/api/users' && m === 'GET') { if (!need()) return; return json(res, 200, { users: auth.d.users.map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role, color: u.color, created: u.created })) }); }
-  if (p === '/api/invites' && m === 'POST') { if (!need('admin')) return; const b = await bodyJSON(req); return json(res, 200, { code: auth.createInvite(user.id, b.role === 'admin' ? 'admin' : 'member'), expiresInDays: 7 }); }
+  if (p === '/api/invites' && m === 'POST') { if (!need('admin')) return; const b = await bodyJSON(req); return json(res, 200, { code: auth.createInvite(user.id, b.role === 'admin' ? 'admin' : 'member'), expiresInDays: 7, fp: fpFor(req), appUrl: cfg.appDownloadUrl }); }
   if ((mm = /^\/api\/users\/([\w-]+)$/.exec(p))) {
     if (!need('admin')) return; const target = auth.user(mm[1]); if (!target) return json(res, 404, { error: 'No such user' });
     if (m === 'DELETE') { if (target.id === user.id) return json(res, 400, { error: 'Use "delete my account" for yourself' }); auth.deleteUser(target.id); for (const [ws, c] of clients) if (c.user.id === target.id) ws.close(); return json(res, 200, { ok: true }); }
@@ -216,7 +217,7 @@ async function handle(req, res) {
       hub.broadcast({ type: 'cameras' }); return json(res, 200, { camera: camView(cam) });
     }
     if (sub === '' && m === 'DELETE') { if (!need('admin')) return; const pp = cams.pipe(cam.id); if (pp && pp.device) pp.device.close(4002); cams.remove(cam.id); auth.revokeDevices(cam.id); settings.data.cameras = settings.data.cameras.filter(c => c.id !== cam.id); settings.save(); hub.broadcast({ type: 'cameras' }); return json(res, 200, { ok: true, note: 'Recordings were kept on disk; they are removed by the retention policy.' }); }
-    if (sub === '/pair' && m === 'POST') { if (!need('admin')) return; if (cam.type !== 'browser') return json(res, 400, { error: 'Only phone/webcam cameras are paired' }); return json(res, 200, { token: auth.createDeviceToken(cam.id) }); }
+    if (sub === '/pair' && m === 'POST') { if (!need('admin')) return; if (cam.type !== 'browser') return json(res, 400, { error: 'Only phone/webcam cameras are paired' }); return json(res, 200, { token: auth.createDeviceToken(cam.id), fp: fpFor(req), appUrl: cfg.appDownloadUrl }); }
     if (sub === '/live' && m === 'GET') {
       const pipe = cams.pipe(cam.id); if (!pipe) return json(res, 404, { error: 'Camera not running' });
       res.writeHead(200, { 'Content-Type': 'multipart/x-mixed-replace; boundary=spframe', 'Cache-Control': 'no-store', Connection: 'close' });
@@ -278,6 +279,11 @@ async function handle(req, res) {
   return json(res, 404, { error: 'Not found' });
 }
 const lastIdentify = new Map();
+// SHA-256 of our self-signed certificate. Put in invite/pairing links so the Android app can trust
+// exactly this certificate on the home network (and nothing else).
+let certFp = null;
+try { if (cfg.https.enabled && fs.existsSync(cfg.https.cert)) certFp = new crypto.X509Certificate(fs.readFileSync(cfg.https.cert)).fingerprint256.replace(/:/g, '').toLowerCase(); } catch {}
+const fpFor = req => (req.socket.encrypted && certFp ? certFp : null);
 function toJpeg(buf) {
   const { spawn } = require('child_process');
   return new Promise((resolve, reject) => {
@@ -300,15 +306,15 @@ function onUpgrade(req, socket, head) {
     if (!user) return socket.destroy();
     const ws = wsLib.upgrade(req, socket, head); if (!ws) return;
     const ua = req.headers['user-agent'] || '';
-    clients.set(ws, { user, view: { page: 'cameras', cams: [] }, device: /Android|iPhone|Mobile/i.test(ua) ? 'phone' : 'computer' });
+    clients.set(ws, { user, bg: url.searchParams.get('background') === '1', view: { page: 'cameras', cams: [] }, device: /Android|iPhone|Mobile/i.test(ua) ? 'phone' : 'computer' });
     ws.send({ type: 'hello', you: auth.publicUser(user), armed: settings.data.armed });
-    hub.presence();
+    if (!clients.get(ws).bg) hub.presence();
     ws.on('message', msg => {
       let d; try { d = JSON.parse(msg); } catch { return; }
       if (d.type === 'view') { const c = clients.get(ws); c.view = { page: String(d.page || '').slice(0, 30), cams: (d.cams || []).slice(0, 16).map(String), focus: !!d.focus }; hub.presence(); }
       if (d.type === 'ping-family' && typeof d.text === 'string') hub.broadcast({ type: 'chat', from: user.name, color: user.color, text: d.text.slice(0, 280), ts: Date.now() });
     });
-    ws.on('close', () => { clients.delete(ws); hub.presence(); });
+    ws.on('close', () => { const bg = clients.get(ws)?.bg; clients.delete(ws); if (!bg) hub.presence(); });
     return;
   }
   if (url.pathname === '/ws/ingest') {
