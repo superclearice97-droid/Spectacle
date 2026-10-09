@@ -38,10 +38,33 @@ Then open `https://<server-ip>:8443` on your phone, accept the certificate warni
 
 Manual run: `npm start` · Tests: `npm test` · Logs: `journalctl -u spectacle -f`
 
+## The Android app (for family & friends)
+
+Family members don't need to set anything up. They install **Spectacle.apk** and paste the invite you send them.
+
+1. In Spectacle, open **Family → Create invite link** and tap **Send by text or email**. The message contains
+   the app download link and the invite.
+2. They tap the download link, install the app, copy your message, open Spectacle and tap **Paste my invite**.
+
+Download link (always the latest version):
+**https://github.com/superclearice97-droid/spectacle/releases/latest/download/Spectacle.apk**
+
+A plain-language guide you can send them: [docs/family-guide.md](docs/family-guide.md).
+
+What the app adds over the browser:
+- One-tap setup from the invite message, with no addresses, certificates or settings to understand.
+- Alerts arrive while the app is closed and come straight from your server (no Google push service).
+  Alerts restart by themselves after the phone reboots.
+- Turn an old phone into a camera from a "camera setup" message. "Dim screen" turns the backlight down while it keeps recording.
+- Follows the phone's text size, works with TalkBack, high-contrast colours, large touch targets.
+
+On your home Wi-Fi the app trusts your server's self-signed certificate **only** because the invite contains its
+fingerprint. Away from home, use Tailscale. Building and signing releases: [docs/android-signing.md](docs/android-signing.md).
+
 ## Adding cameras (Settings → Cameras, admin only)
 
 - **IP camera:** enter its RTSP address, e.g. `rtsp://user:pass@192.168.1.20:554/h264Preview_01_main`. H.264 cameras play everywhere; H.265 recordings may not play in every browser (choose H.264 in the camera's settings if you can).
-- **Old phone / webcam:** add it, tap **Get pairing link**, open that link on the camera phone, tick the notice and press Start. Keep the page open, screen on and charger plugged in (browsers stop the camera in the background). "Dim screen" blacks out the display. The microphone is never used.
+- **Old phone / webcam:** add it, tap **Get pairing link** and send the message to the camera phone. On it, install the app, tap **Paste my invite**, tick the notice and press Start (or open the link in Chrome). Keep the page open, screen on and charger plugged in (browsers stop the camera in the background). "Dim screen" blacks out the display. The microphone is never used.
 
 ## Remote access & phone notifications
 

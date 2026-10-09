@@ -14,7 +14,13 @@ for i in $(seq 1 30); do
 done
 adb shell screencap -p /sdcard/shot.png && adb pull /sdcard/shot.png emulator-join.png >/dev/null 2>&1
 adb logcat -d > logcat.txt
-if grep -q "FATAL EXCEPTION" logcat.txt; then echo "::error::App crashed"; grep -A30 "FATAL EXCEPTION" logcat.txt | head -60; exit 1; fi
-if [ "$ok" != 1 ]; then echo "::error::Sign-up page never appeared"; grep -E "spectacle|chromium" -i logcat.txt | tail -60; cat ui.xml | head -c 3000; exit 1; fi
+# Failures are reported as annotations (one line, %0A = newline) so they're readable without log access.
+note() { printf '::error::%s%%0A%s\n' "$1" "$(echo "$2" | cut -c1-200 | sed 's/%/%25/g' | tr '\n' '\001' | sed 's/\x01/%0A/g')"; }
+if grep -q "FATAL EXCEPTION" logcat.txt; then note "App crashed" "$(grep -A25 'FATAL EXCEPTION' logcat.txt | head -40)"; exit 1; fi
+if [ "$ok" != 1 ]; then
+  note "Sign-up page never appeared" "$(grep -iE 'spectacle|chromium|cr_|ssl|cert' logcat.txt | tail -30)"
+  note "Screen text" "$(grep -o 'text="[^"]*"' ui.xml | head -30)"
+  exit 1
+fi
 echo "Invite opened in the app and the sign-up page loaded over the pinned certificate."
-adb shell dumpsys activity services app.spectacle.family | grep -q AlertService && echo "Background alert service is running." || { echo "::error::AlertService not running"; exit 1; }
+adb shell dumpsys activity services app.spectacle.family | grep -q AlertService && echo "Background alert service is running." || { note "AlertService not running" "$(adb shell dumpsys activity services app.spectacle.family | head -20)"; exit 1; }
