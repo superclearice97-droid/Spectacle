@@ -94,5 +94,13 @@ while time.time() < end:
 else:
     fail("Alert notification never appeared", sh("adb shell dumpsys activity services app.spectacle.family") + "\n" + sh("adb logcat -d | grep -i -E 'spectacle|okhttp' | tail -30"))
 
+# 4. Home unreachable (e.g. Tailscale switched off): the app must show its own friendly screen
+sh("pkill -f 'server/index.js'"); time.sleep(2)
+sh("adb shell am force-stop app.spectacle.family"); time.sleep(1)
+sh("adb shell monkey -p app.spectacle.family -c android.intent.category.LAUNCHER 1")
+wait_for(["Can't reach home"], 60)
+_, ns = wait_for(["Try again"], 10)
+print("✓ Shows a friendly 'Can't reach home' screen with Try again when the server is unreachable")
+
 if "FATAL EXCEPTION" in sh("adb logcat -d"): fail("App crashed during the test")
 print("All Android checks passed.")
