@@ -4,7 +4,7 @@ on:
   push:
     branches: ['**']
     tags: ['v*']
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**', '.github/workflows/android.yml', 'package.json']
   pull_request:
     paths: ['android/**']
   workflow_dispatch:
@@ -16,8 +16,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      release: ${{ steps.ver.outputs.release }}
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+
+      # A release is published when package.json's version is new on main (or a v* tag is pushed).
+      - name: Version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          REL=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; REL=true
+          elif [[ "$GITHUB_REF" == refs/heads/main ]] && ! gh release view "v$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then REL=true
+          fi
+          if [ "$REL" = true ]; then echo "VERSION_NAME=$V" >> "$GITHUB_ENV"; else echo "VERSION_NAME=$V-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"; fi
+          echo "VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "release=$REL" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Version $V, publish release: $REL"
 
       - uses: actions/setup-java@v5
         with:
@@ -38,17 +57,12 @@ jobs:
             echo "KEYSTORE_FILE=$RUNNER_TEMP/spectacle.jks" >> "$GITHUB_ENV"
             echo "KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
             echo "Signing with the Spectacle release key."
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          elif [ "${{ steps.ver.outputs.release }}" = true ]; then
             echo "::error::Release builds need the SPECTACLE_KEYSTORE_B64 and SPECTACLE_KEYSTORE_PASSWORD secrets (see docs/android-signing.md)."
             exit 1
           else
             echo "::warning::No signing key secret yet; building a test APK with a throwaway key."
           fi
-
-      - name: Version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; else echo "VERSION_NAME=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"; fi
-          echo "VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
       - name: Build APK
         run: gradle -p android --no-daemon assembleRelease
@@ -97,7 +111,7 @@ jobs:
           script: python3 android/ci/emulator_test.py
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.build.outputs.release == 'true'
     needs: [build, emulator-test]   # only publish an APK that passed the emulator test
     runs-on: ubuntu-latest
     steps:
@@ -116,5 +130,6 @@ jobs:
 
           Already have Spectacle? Installing this version updates it and keeps you signed in.
           EOF
-          gh release create "$GITHUB_REF_NAME" Spectacle.apk Spectacle.apk.sha256 --title "Spectacle ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          V="${{ needs.build.outputs.version }}"
+          gh release create "v$V" Spectacle.apk Spectacle.apk.sha256 -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Spectacle $V" --notes-file notes.md
 

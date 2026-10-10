@@ -16,13 +16,11 @@ Every Spectacle APK must be signed with the **same key**, or phones refuse to in
 
 ## Making a release
 
-Push a version tag, e.g. from the repo folder:
+Raise `"version"` in `package.json` (for example `1.0.0` → `1.0.1`) and push to `main`. You can even do it on
+GitHub's website: open `package.json`, tap the pencil, change the number, **Commit changes**. (Pushing a `v1.0.1`
+tag works too.)
 
-```bash
-git tag v1.0.0 && git push origin v1.0.0
-```
-
-GitHub builds the APK and publishes it as `Spectacle.apk` on the Releases page. This link always points to
+GitHub builds the signed APK, tests it on an Android emulator, and only if that passes publishes it as `Spectacle.apk` on the Releases page. This link always points to
 the newest version, and is what invites send to family:
 
 `https://github.com/superclearice97-droid/spectacle/releases/latest/download/Spectacle.apk`
