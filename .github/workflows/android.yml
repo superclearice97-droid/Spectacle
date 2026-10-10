@@ -53,9 +53,16 @@ jobs:
           KS_PASS: ${{ secrets.SPECTACLE_KEYSTORE_PASSWORD }}
         run: |
           if [ -n "$KS" ]; then
-            echo "$KS" | base64 -d > "$RUNNER_TEMP/spectacle.jks"
-            echo "KEYSTORE_FILE=$RUNNER_TEMP/spectacle.jks" >> "$GITHUB_ENV"
+            # Tolerate spaces/newlines from copy-paste; report problems without ever printing the secrets.
+            printf '%s' "$KS" | tr -d ' \r\n\t' | base64 -d > "$RUNNER_TEMP/spectacle.jks" 2>/dev/null || { echo "::error::SPECTACLE_KEYSTORE_B64 isn't valid base64. Paste the long line from the secrets file again, with nothing else."; exit 1; }
+            KS_PASS=$(printf '%s' "$KS_PASS" | tr -d '\r\n')
+            if ! keytool -list -keystore "$RUNNER_TEMP/spectacle.jks" -storepass "$KS_PASS" >/dev/null 2>&1; then
+              echo "::error::The signing key couldn't be opened (size $(wc -c < "$RUNNER_TEMP/spectacle.jks") bytes, expected about 4300). Either SPECTACLE_KEYSTORE_PASSWORD is wrong ($(printf '%s' "$KS_PASS" | wc -c) characters, expected 32) or SPECTACLE_KEYSTORE_B64 is incomplete ($(printf '%s' "$KS" | tr -d ' \r\n\t' | wc -c) characters, expected 5736)."
+              exit 1
+            fi
+            keytool -list -keystore "$RUNNER_TEMP/spectacle.jks" -storepass "$KS_PASS" -alias spectacle >/dev/null 2>&1 || { echo "::error::The key inside the keystore isn't named 'spectacle'."; exit 1; }
             echo "KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/spectacle.jks" >> "$GITHUB_ENV"
             echo "Signing with the Spectacle release key."
           elif [ "${{ steps.ver.outputs.release }}" = true ]; then
             echo "::error::Release builds need the SPECTACLE_KEYSTORE_B64 and SPECTACLE_KEYSTORE_PASSWORD secrets (see docs/android-signing.md)."
@@ -65,7 +72,11 @@ jobs:
           fi
 
       - name: Build APK
-        run: gradle -p android --no-daemon assembleRelease
+        run: |
+          set -o pipefail
+          gradle -p android --no-daemon assembleRelease 2>&1 | tee "$RUNNER_TEMP/gradle.log" || {
+            msg=$(grep -A12 "What went wrong" "$RUNNER_TEMP/gradle.log" | head -14 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::Gradle build failed%0A$msg"; exit 1; }
 
       - name: Collect APK
         run: |
