@@ -4,7 +4,9 @@
   "description": "Self-hosted family security cameras with motion alerts, live presence, and an offline bug/flower/bird biome log.",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server/index.js",
     "species-db": "node server/scripts/build-species-db.js",
