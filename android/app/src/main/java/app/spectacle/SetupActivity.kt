@@ -29,6 +29,7 @@ class SetupActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var status: TextView
     private lateinit var connect: Button
+    private lateinit var tsButton: Button
     private val main = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,6 +41,11 @@ class SetupActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::tsButton.isInitialized && tsButton.visibility == View.VISIBLE && input.text.isNotBlank()) { tsButton.visibility = View.GONE; go() }
     }
 
     private fun handle(intent: Intent?) {
@@ -116,6 +122,11 @@ class SetupActivity : Activity() {
             (layoutParams as LinearLayout.LayoutParams).topMargin = dp(22)
         }
         col.addView(status)
+        tsButton = bigButton("Open Tailscale", true).apply {
+            visibility = View.GONE
+            setOnClickListener { TailscaleHelp.open(this@SetupActivity) }
+        }
+        col.addView(tsButton)
         col.addView(label("No invite? Ask the person who set up your family's cameras to send you one.", 16f, color(R.color.dim)).apply {
             (layoutParams as LinearLayout.LayoutParams).topMargin = dp(36)
         })
@@ -157,7 +168,11 @@ class SetupActivity : Activity() {
             main.post {
                 connect.isEnabled = true
                 if (!ok) {
-                    say("Couldn't reach your family's cameras. Check you're online, or ask for a new invite link.", true)
+                    if (TailscaleHelp.usesTailscale(origin)) {
+                        say(TailscaleHelp.unreachableMessage(this, origin), true)
+                        tsButton.text = TailscaleHelp.buttonLabel(this)
+                        tsButton.visibility = View.VISIBLE
+                    } else say("Couldn't reach your family's cameras. Check you're online (or on your home Wi-Fi), or ask for a new invite link.", true)
                     return@post
                 }
                 val prefs = Prefs(this)

@@ -11,7 +11,7 @@ const ROOT = path.join(__dirname, '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'spectacle-test-'));
 const PORT = 18080 + Math.floor(Math.random() * 1000);
 const cfgFile = path.join(tmp, 'config.json');
-fs.writeFileSync(cfgFile, JSON.stringify({ dataDir: path.join(tmp, 'data'), http: { enabled: true, host: '127.0.0.1', port: PORT }, https: { enabled: false }, recording: { segmentMinutes: 1, retentionDays: 1, minFreeGB: 0 }, motion: { fps: 4, cooldownSec: 5 }, biome: { intervalSec: 5 } }));
+fs.writeFileSync(cfgFile, JSON.stringify({ dataDir: path.join(tmp, 'data'), http: { enabled: true, host: '127.0.0.1', port: PORT }, https: { enabled: false }, recording: { segmentMinutes: 1, retentionDays: 1, minFreeGB: 0 }, motion: { fps: 4, cooldownSec: 5 }, biome: { intervalSec: 5 }, publicUrl: 'https://spectacle.example-tailnet.ts.net' }));
 const BASE = `http://127.0.0.1:${PORT}`;
 let cookie = '';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -38,7 +38,9 @@ async function call(p, body, method) {
     const { camera } = await call('/api/cameras', { name: 'Garden', type: 'browser', ackPlacement: true });
     const { token } = await call(`/api/cameras/${camera.id}/pair`, {});
     ok(token.length > 20, 'pairing token issued');
-    const inv = await call('/api/invites', { role: 'member' }); ok(inv.code, 'invite created');
+    const inv = await call('/api/invites', { role: 'member', shareUrl: 'https://login.tailscale.com/admin/invite/abc123' });
+    ok(inv.code && inv.base === 'https://spectacle.example-tailnet.ts.net' && inv.shareUrl && !inv.fp, 'invite uses the private Tailscale address + share link');
+    let badShare = false; try { await call('/api/invites', { shareUrl: 'https://evil.example.com/x' }); } catch { badShare = true; } ok(badShare, 'non-Tailscale share links rejected');
 
     console.log('Presence');
     const viewer = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, { headers: { Cookie: cookie } });

@@ -96,14 +96,34 @@ class AlertService : Service() {
         if (cookie.isNullOrEmpty()) { retry(); return } // not signed in yet
         val req = Request.Builder().url(server.replaceFirst("https://", "wss://") + "/ws?background=1").header("Cookie", cookie).build()
         socket = Tls.client(prefs.pin).newWebSocket(req, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) { backoff = 2000 }
+            override fun onOpen(webSocket: WebSocket, response: Response) { backoff = 2000; main.post { connected() } }
             override fun onMessage(webSocket: WebSocket, text: String) { main.post { handle(text) } }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { main.post { lost(webSocket) } }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { main.post { lost(webSocket) } }
         })
     }
 
-    private fun lost(ws: WebSocket) { if (socket === ws) { socket = null; retry() } }
+    private fun lost(ws: WebSocket) {
+        if (socket === ws) { socket = null; retry() }
+        if (downSince == 0L) downSince = System.currentTimeMillis()
+        // Tell the person (gently, once) if home has been unreachable for a while: usually Tailscale is off.
+        if (!warned && System.currentTimeMillis() - downSince > 10 * 60_000) { warned = true; setStatus(false) }
+    }
+    private var downSince = 0L
+    private var warned = false
+    private fun connected() { downSince = 0; if (warned) { warned = false; setStatus(true) } }
+
+    private fun setStatus(ok: Boolean) {
+        val server = Prefs(this).server
+        val ts = TailscaleHelp.usesTailscale(server)
+        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(R.drawable.ic_stat_eye).setOngoing(true)
+        if (ok) b.setContentTitle("Watching for alerts").setContentText("Tap to open Spectacle").setContentIntent(openIntent("/"))
+        else {
+            val tap = if (ts) PendingIntent.getActivity(this, 7, packageManager.getLaunchIntentForPackage(TailscaleHelp.PACKAGE) ?: Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE) else openIntent("/")
+            b.setContentTitle("Not receiving alerts").setContentText(if (ts) "Can't reach home. Tap to check Tailscale is switched on." else "Can't reach home. Check your connection.").setContentIntent(tap)
+        }
+        try { getSystemService(NotificationManager::class.java).notify(STATUS_ID, b.build()) } catch (_: SecurityException) {}
+    }
     private fun retry() {
         if (stopped) return
         main.postDelayed({ connect() }, backoff)

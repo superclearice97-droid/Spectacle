@@ -12,13 +12,23 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -46,7 +56,11 @@ class MainActivity : Activity() {
         if (server == null) { startActivity(Intent(this, SetupActivity::class.java)); finish(); return }
 
         web = WebView(this)
-        setContentView(web)
+        val root = FrameLayout(this)
+        root.addView(web)
+        offline = buildOfflineScreen()
+        root.addView(offline)
+        setContentView(root)
         CookieManager.getInstance().setAcceptCookie(true)
         web.settings.apply {
             javaScriptEnabled = true
@@ -72,7 +86,12 @@ class MainActivity : Activity() {
                 if (pin != null && cert != null && Prefs.originOf(error.url) == prefs.server && Tls.fingerprint(cert) == pin) handler.proceed()
                 else handler.cancel()
             }
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                // Only the page itself failing matters (not a single image).
+                if (request.isForMainFrame) showOffline(true)
+            }
             override fun onPageFinished(view: WebView, url: String) {
+                if (url.startsWith("http")) showOffline(false)
                 maybeOnboard(url)
                 val cameraMode = Uri.parse(url).path?.startsWith("/camera") == true
                 if (cameraMode) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -121,7 +140,61 @@ class MainActivity : Activity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); if (::web.isInitialized) web.saveState(outState) }
-    override fun onResume() { super.onResume(); visible = true }
+    override fun onResume() {
+        super.onResume(); visible = true
+        // Coming back from the Tailscale app: try again straight away.
+        if (::offline.isInitialized && offline.visibility == View.VISIBLE) web.reload()
+    }
+
+    // ---------- friendly "can't reach home" screen (instead of a browser error page) ----------
+    private lateinit var offline: LinearLayout
+    private lateinit var offlineText: TextView
+    private lateinit var offlineTs: Button
+
+    private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+    private fun bigButton(text: String, primary: Boolean, onClick: () -> Unit) = Button(this).apply {
+        this.text = text; isAllCaps = false; minHeight = dp(64)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f); typeface = Typeface.DEFAULT_BOLD
+        setTextColor(getColor(if (primary) R.color.bg else R.color.ink))
+        background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(getColor(if (primary) R.color.lime else R.color.card)); if (!primary) setStroke(dp(2), getColor(R.color.dim)) }
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) }
+        setOnClickListener { onClick() }
+    }
+    private fun buildOfflineScreen() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(28), dp(28), dp(28), dp(28))
+        setBackgroundColor(getColor(R.color.bg))
+        visibility = View.GONE
+        isClickable = true
+        addView(TextView(context).apply {
+            text = "Can't reach home"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f); typeface = Typeface.DEFAULT_BOLD
+            setTextColor(getColor(R.color.ink))
+            if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
+        })
+        offlineText = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f); setLineSpacing(0f, 1.25f)
+            setTextColor(getColor(R.color.dim))
+            setPadding(0, dp(12), 0, dp(8))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        addView(offlineText)
+        offlineTs = bigButton("Open Tailscale", true) { TailscaleHelp.open(this@MainActivity) }
+        addView(offlineTs)
+        addView(bigButton("Try again", false) { showOffline(false); web.reload() })
+    }
+    private fun showOffline(show: Boolean) {
+        if (!::offline.isInitialized) return
+        if (show) {
+            val ts = TailscaleHelp.usesTailscale(prefs.server)
+            offlineText.text = TailscaleHelp.unreachableMessage(this, prefs.server)
+            offlineTs.text = TailscaleHelp.buttonLabel(this)
+            offlineTs.visibility = if (ts) View.VISIBLE else View.GONE
+            offline.visibility = View.VISIBLE
+            offline.announceForAccessibility("Can't reach home. " + offlineText.text)
+        } else offline.visibility = View.GONE
+    }
     override fun onPause() { super.onPause(); visible = false; CookieManager.getInstance().flush() }
 
     @Deprecated("Deprecated in Java")

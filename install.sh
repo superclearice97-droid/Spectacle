@@ -86,11 +86,46 @@ EOF
   need_sudo systemctl enable --now spectacle
 fi
 
+# ---------- Private access from anywhere (Tailscale) ----------
+# Optional. Gives the server a private https://<name>.ts.net address with a real certificate, reachable only
+# by devices you invite. Family install the Tailscale app once; nothing is opened to the public internet.
+TS_CHOICE="${SPECTACLE_TAILSCALE:-}"
+if [ -z "$TS_CHOICE" ] && [ -t 0 ]; then
+  echo
+  echo "Set up Tailscale so family can use Spectacle away from home (recommended)?"
+  echo "  It's a private connection: only people you share the server with can reach it."
+  read -r -p "  Set up Tailscale now? [Y/n] " TS_CHOICE
+  TS_CHOICE="${TS_CHOICE:-y}"
+fi
+case "$TS_CHOICE" in
+  y|Y|yes|YES)
+    if ! command -v tailscale >/dev/null; then
+      say "Installing Tailscale"
+      curl -fsSL https://tailscale.com/install.sh | need_sudo sh
+    fi
+    if ! tailscale status >/dev/null 2>&1; then
+      say "Sign this server in to Tailscale (a link will appear; open it on any device)"
+      need_sudo tailscale up
+    fi
+    say "Publishing Spectacle privately on your tailnet"
+    need_sudo tailscale serve --bg 8080 >/dev/null
+    TS_NAME=$(tailscale status --json | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(JSON.parse(d).Self.DNSName.replace(/\.$/,""))}catch{}})')
+    if [ -n "$TS_NAME" ]; then
+      node -e 'const fs=require("fs");const f="config.json";const c=JSON.parse(fs.readFileSync(f,"utf8"));c.publicUrl=process.argv[1];fs.writeFileSync(f,JSON.stringify(c,null,2)+"\n")' "https://$TS_NAME"
+      TS_URL="https://$TS_NAME"
+      command -v systemctl >/dev/null && need_sudo systemctl restart spectacle 2>/dev/null || true
+    else
+      echo "Couldn't read the Tailscale name. Run 'tailscale status' and put https://<name>.ts.net in config.json → publicUrl."
+    fi ;;
+  *) echo "Skipped. Spectacle will only work on your home Wi-Fi until you set up Tailscale (see README)." ;;
+esac
+
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 cat <<EOF
 
 Spectacle is running.
   At home:   https://${IP:-this-computer}:8443   (accept the certificate warning once per device)
-  Anywhere:  see README → "Remote access & phone notifications" (Tailscale recommended)
+  Anywhere:  ${TS_URL:-not set up yet (see README: Tailscale)}
+Invite family from the Family tab. Each invite message tells them how to install Tailscale and Spectacle.
 Logs:  journalctl -u spectacle -f
 EOF

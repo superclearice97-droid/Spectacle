@@ -238,13 +238,22 @@ async function pageFamily() {
     <div class="card"><div class="people" id="people"></div></div>
     <div class="card stack" style="margin-top:14px"><h2>Quick note to everyone online</h2><form id="say" class="row"><input type="text" id="sayText" maxlength="280" placeholder="e.g. I'm checking the back gate" style="flex:1"><button class="btn primary">Send</button></form>
     <div class="feed" id="feed">${S.feed.map(f => `<div class="small"><b style="color:${esc(f.color)}">${esc(f.from)}</b> ${esc(f.text)} <span class="muted">${esc(fmtTime(f.ts))}</span></div>`).join('') || '<p class="muted small">Notes aren\'t saved; they only reach people online right now.</p>'}</div></div>
-    ${S.me.role === 'admin' ? `<div class="card stack" style="margin-top:14px"><h2>Invite someone</h2><p class="small muted">Invite codes work once and expire after 7 days. Only invite people who live with you or whom the household agrees should see the cameras.</p><div class="row"><button class="btn" id="inv">Create invite link</button><label class="check"><input type="checkbox" id="invAdmin"> Make them an admin</label></div><div id="invOut"></div></div>` : ''}`;
+    ${S.me.role === 'admin' ? `<div class="card stack" style="margin-top:14px"><h2>Invite someone</h2><p class="small muted">Invite codes work once and expire after 7 days. Only invite people who live with you or whom the household agrees should see the cameras.</p>${S.publicUrl ? `<label class="f">Tailscale share link for this person (recommended)<input type="url" id="invShare" placeholder="https://login.tailscale.com/admin/invite/…"><span class="small muted" style="font-weight:400">Lets them reach your cameras privately. In Tailscale's admin page, open <b>Machines</b>, tap ⋯ next to your Spectacle server, choose <b>Share…</b> and copy a new invite link (one per person). They'll see only this server, nothing else on your network.</span></label>` : `<p class="small muted">Invites currently only work on your home Wi-Fi. Set up Tailscale on the server (see the README) so family can connect from anywhere.</p>`}
+    <div class="row"><button class="btn" id="inv">Create invite link</button><label class="check"><input type="checkbox" id="invAdmin"> Make them an admin</label></div><div id="invOut"></div></div>` : ''}`;
   renderFamilyPeople();
   $('#say').onsubmit = e => { e.preventDefault(); const t = $('#sayText').value.trim(); if (t && S.ws) { S.ws.send(JSON.stringify({ type: 'ping-family', text: t })); $('#sayText').value = ''; } };
   if ($('#inv')) $('#inv').onclick = async () => {
-    const r = await api('/api/invites', { method: 'POST', body: { role: $('#invAdmin').checked ? 'admin' : 'member' } });
-    const link = location.origin + '/#join/' + r.code + (r.fp ? '?fp=' + r.fp : '');
-    const msg = `You're invited to our family cameras on Spectacle!\n\n1) Install the app on your Android phone: ${r.appUrl}\n\n2) Copy this whole message, open Spectacle and tap "Paste my invite".\n\nInvite (works once, for 7 days): ${link}`;
+    let r;
+    try { r = await api('/api/invites', { method: 'POST', body: { role: $('#invAdmin').checked ? 'admin' : 'member', shareUrl: ($('#invShare') && $('#invShare').value.trim()) || undefined } }); }
+    catch (e) { $('#invOut').innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+    const link = (r.base || location.origin) + '/#join/' + r.code + (r.fp ? '?fp=' + r.fp : '');
+    const steps = r.base ? [
+      `Install Tailscale (keeps our connection private): ${r.tailscaleAppUrl}\nOpen it and sign in (for example with your Google account).`,
+      r.shareUrl ? `Tap this link to connect to our cameras, then tap Accept: ${r.shareUrl}` : null,
+      `Install Spectacle: ${r.appUrl}`,
+    ] : [`Install Spectacle: ${r.appUrl}`];
+    steps.push(`Copy this whole message, open Spectacle and tap "Paste my invite".`);
+    const msg = `You're invited to our family cameras on Spectacle!\n\n${steps.filter(Boolean).map((t, i) => `${i + 1}) ${t}`).join('\n\n')}\n\nInvite (works once, for 7 days): ${link}`;
     $('#invOut').innerHTML = `<label class="f" style="margin-top:8px">Message to send<textarea readonly rows="7">${esc(msg)}</textarea></label><div class="row" style="margin-top:8px">${navigator.share ? '<button class="btn primary" id="shareInv">Send by text or email…</button>' : ''}<button class="btn" id="copyInv">Copy message</button></div><p class="small muted">Send it privately, to one person. Anyone who has it can join until it's used.</p>`;
     $('#copyInv').onclick = () => copyText(msg);
     if ($('#shareInv')) $('#shareInv').onclick = () => navigator.share({ title: 'Join our Spectacle', text: msg }).catch(() => {});
@@ -339,8 +348,10 @@ function bindCameraAdmin() {
   $$('[data-del]').forEach(b => b.onclick = async () => { if (!confirm('Remove this camera? Existing recordings stay until the retention period ends.')) return; await api('/api/cameras/' + b.dataset.del, { method: 'DELETE' }); pageSettings(); });
   $$('[data-pair]').forEach(b => b.onclick = async () => {
     const r = await api(`/api/cameras/${b.dataset.pair}/pair`, { method: 'POST' });
-    const link = location.origin + '/camera#token=' + r.token + (r.fp ? '&fp=' + r.fp : '');
-    const msg = `Spectacle camera setup\n\n1) On the phone that will be the camera, install: ${r.appUrl}\n\n2) Copy this message, open Spectacle, tap "Paste my invite".\n\nCamera link: ${link}`;
+    const link = (r.base || location.origin) + '/camera#token=' + r.token + (r.fp ? '&fp=' + r.fp : '');
+    const msg = r.base
+      ? `Spectacle camera setup\n\nOn the phone that will be the camera:\n1) Install Tailscale and sign in with the same account as the server: ${r.tailscaleAppUrl}\n\n2) Install Spectacle: ${r.appUrl}\n\n3) Copy this message, open Spectacle, tap "Paste my invite".\n\nCamera link: ${link}`
+      : `Spectacle camera setup\n\n1) On the phone that will be the camera, install: ${r.appUrl}\n\n2) Copy this message, open Spectacle, tap "Paste my invite".\n\nCamera link: ${link}`;
     const out = $(`[data-pairout="${CSS.escape(b.dataset.pair)}"]`);
     out.innerHTML = `<textarea readonly rows="6">${esc(msg)}</textarea><p class="small muted">Anyone with this link can stream as this camera. Creating a new link disables the old one.</p><div class="row">${navigator.share ? '<button type="button" class="btn primary" data-s>Send…</button>' : ''}<button type="button" class="btn" data-c>Copy message</button></div>`;
     $('[data-c]', out).onclick = () => copyText(msg);
@@ -393,7 +404,7 @@ function authPage(mode, invite) {
 
 async function boot() {
   const st = await api('/api/state', { allow401: true });
-  S.vapidKey = st.vapidKey; S.armed = st.armed; S.appUrl = st.appUrl;
+  S.vapidKey = st.vapidKey; S.armed = st.armed; S.appUrl = st.appUrl; S.publicUrl = st.publicUrl;
   const join = /^#join\/([^?&]+)/.exec(location.hash);
   if (st.setupNeeded) return authPage('setup');
   if (!st.user) return join ? authPage('join', join[1]) : authPage('login');

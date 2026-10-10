@@ -136,7 +136,7 @@ async function handle(req, res) {
   const need = role => { if (!user) { json(res, 401, { error: 'Please sign in' }); return false; } if (role === 'admin' && user.role !== 'admin') { json(res, 403, { error: 'Only the family admin can do that' }); return false; } return true; };
   let mm;
 
-  if (p === '/api/state' && m === 'GET') return json(res, 200, { appName: cfg.appName, setupNeeded: !auth.hasUsers(), user: auth.publicUser(user), vapidKey: cfg.secrets.vapid.publicKey, armed: settings.data.armed, legalVersion: LEGAL_VERSION, appUrl: cfg.appDownloadUrl, consentStale: user ? user.consent.version !== LEGAL_VERSION : false });
+  if (p === '/api/state' && m === 'GET') return json(res, 200, { appName: cfg.appName, setupNeeded: !auth.hasUsers(), user: auth.publicUser(user), vapidKey: cfg.secrets.vapid.publicKey, armed: settings.data.armed, legalVersion: LEGAL_VERSION, appUrl: cfg.appDownloadUrl, publicUrl: publicBase(), consentStale: user ? user.consent.version !== LEGAL_VERSION : false });
   if (p === '/api/setup' && m === 'POST') {
     if (auth.hasUsers()) return json(res, 409, { error: 'Already set up' });
     const b = await bodyJSON(req); const u = auth.createUser({ ...b, role: 'admin' });
@@ -182,7 +182,8 @@ async function handle(req, res) {
   if (p === '/api/push/test' && m === 'POST') { if (!need()) return; await notifier.alert({ kind: 'test', title: 'Spectacle test', body: `Hi ${user.name}, notifications are working.` }); return json(res, 200, { ok: true, devices: (user.push || []).length }); }
 
   if (p === '/api/users' && m === 'GET') { if (!need()) return; return json(res, 200, { users: auth.d.users.map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role, color: u.color, created: u.created })) }); }
-  if (p === '/api/invites' && m === 'POST') { if (!need('admin')) return; const b = await bodyJSON(req); return json(res, 200, { code: auth.createInvite(user.id, b.role === 'admin' ? 'admin' : 'member'), expiresInDays: 7, fp: fpFor(req), appUrl: cfg.appDownloadUrl }); }
+  if (p === '/api/invites' && m === 'POST') { if (!need('admin')) return; const b = await bodyJSON(req); if (b.shareUrl && !okShare(b.shareUrl)) return json(res, 400, { error: 'That doesn\'t look like a Tailscale link (it should start with https://login.tailscale.com/)' });
+    return json(res, 200, { code: auth.createInvite(user.id, b.role === 'admin' ? 'admin' : 'member'), expiresInDays: 7, shareUrl: okShare(b.shareUrl), ...linkInfo(req) }); }
   if ((mm = /^\/api\/users\/([\w-]+)$/.exec(p))) {
     if (!need('admin')) return; const target = auth.user(mm[1]); if (!target) return json(res, 404, { error: 'No such user' });
     if (m === 'DELETE') { if (target.id === user.id) return json(res, 400, { error: 'Use "delete my account" for yourself' }); auth.deleteUser(target.id); for (const [ws, c] of clients) if (c.user.id === target.id) ws.close(); return json(res, 200, { ok: true }); }
@@ -217,7 +218,7 @@ async function handle(req, res) {
       hub.broadcast({ type: 'cameras' }); return json(res, 200, { camera: camView(cam) });
     }
     if (sub === '' && m === 'DELETE') { if (!need('admin')) return; const pp = cams.pipe(cam.id); if (pp && pp.device) pp.device.close(4002); cams.remove(cam.id); auth.revokeDevices(cam.id); settings.data.cameras = settings.data.cameras.filter(c => c.id !== cam.id); settings.save(); hub.broadcast({ type: 'cameras' }); return json(res, 200, { ok: true, note: 'Recordings were kept on disk; they are removed by the retention policy.' }); }
-    if (sub === '/pair' && m === 'POST') { if (!need('admin')) return; if (cam.type !== 'browser') return json(res, 400, { error: 'Only phone/webcam cameras are paired' }); return json(res, 200, { token: auth.createDeviceToken(cam.id), fp: fpFor(req), appUrl: cfg.appDownloadUrl }); }
+    if (sub === '/pair' && m === 'POST') { if (!need('admin')) return; if (cam.type !== 'browser') return json(res, 400, { error: 'Only phone/webcam cameras are paired' }); return json(res, 200, { token: auth.createDeviceToken(cam.id), ...linkInfo(req) }); }
     if (sub === '/live' && m === 'GET') {
       const pipe = cams.pipe(cam.id); if (!pipe) return json(res, 404, { error: 'Camera not running' });
       res.writeHead(200, { 'Content-Type': 'multipart/x-mixed-replace; boundary=spframe', 'Cache-Control': 'no-store', Connection: 'close' });
@@ -284,6 +285,9 @@ const lastIdentify = new Map();
 let certFp = null;
 try { if (cfg.https.enabled && fs.existsSync(cfg.https.cert)) certFp = new crypto.X509Certificate(fs.readFileSync(cfg.https.cert)).fingerprint256.replace(/:/g, '').toLowerCase(); } catch {}
 const fpFor = req => (req.socket.encrypted && certFp ? certFp : null);
+const publicBase = () => (/^https:\/\/[^/]+$/.test(cfg.publicUrl || '') ? cfg.publicUrl : null);
+const linkInfo = req => { const base = publicBase(); return { base, fp: base ? null : fpFor(req), appUrl: cfg.appDownloadUrl, tailscaleAppUrl: 'https://play.google.com/store/apps/details?id=com.tailscale.ipn' }; };
+const okShare = u => typeof u === 'string' && /^https:\/\/([a-z0-9-]+\.)*tailscale\.com\/\S+$/i.test(u.trim()) ? u.trim() : null;
 function toJpeg(buf) {
   const { spawn } = require('child_process');
   return new Promise((resolve, reject) => {

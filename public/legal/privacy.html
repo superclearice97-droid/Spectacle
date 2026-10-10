@@ -3,7 +3,7 @@
 <body><main class="legal">
 <p><a href="/">← Back to Spectacle</a></p>
 <h1>Privacy policy</h1>
-<p class="muted">Version 2026-10-09b. This policy covers this self-hosted copy of Spectacle. The household member who installed it (the "administrator") is responsible for it and for the data it holds.</p>
+<p class="muted">Version 2026-10-10. This policy covers this self-hosted copy of Spectacle. The household member who installed it (the "administrator") is responsible for it and for the data it holds.</p>
 
 <h2>The short version</h2>
 <ul>
@@ -46,7 +46,7 @@
 <li><b>Push notifications</b> are delivered through your browser maker's push service (for Chrome on Android, Google's Firebase Cloud Messaging; Firefox uses Mozilla's service). Message contents are end-to-end encrypted to your device; the service sees only timing and size. Notifications contain the camera name, time, and species names, never video or images.</li>
 <li><b>ntfy</b> (optional): if the administrator configures an ntfy address, motion alerts with the camera name and time go to that server.</li>
 <li><b>Species database download</b> (optional, off unless chosen): when the administrator runs <code>npm run species-db</code>, the server downloads public data from Wikipedia, Wikimedia Commons and GBIF. Only species names are sent; nothing about your home.</li>
-<li><b>Remote access</b>: if the administrator uses Tailscale or another tunnel, traffic passes through that provider encrypted.</li>
+<li><b>Remote access (Tailscale)</b>: to use Spectacle away from home, each member installs Tailscale and signs in with an account of their choice (for example Google). Connections between your phone and the home server are end-to-end encrypted (WireGuard); Tailscale cannot see your video or alerts. Tailscale does process account details (name, email), device names, IP addresses and connection metadata to set up the connection, under <a href="https://tailscale.com/privacy-policy" rel="noopener">Tailscale's privacy policy</a>. The administrator shares only the Spectacle server with you, not the rest of their network.</li>
 </ul>
 <p>Spectacle contains no analytics, advertising or tracking code.</p>
 

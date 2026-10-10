@@ -13,6 +13,11 @@
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- Lets Spectacle check whether Tailscale is installed and open it for the person -->
+    <queries>
+        <package android:name="com.tailscale.ipn" />
+    </queries>
+
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"

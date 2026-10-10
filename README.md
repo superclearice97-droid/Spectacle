@@ -40,11 +40,16 @@ Manual run: `npm start` · Tests: `npm test` · Logs: `journalctl -u spectacle -
 
 ## The Android app (for family & friends)
 
-Family members don't need to set anything up. They install **Spectacle.apk** and paste the invite you send them.
+Family members just follow the invite message you send them. It walks them through installing **Tailscale**
+(the private connection home) and **Spectacle.apk**, then pasting the invite.
 
-1. In Spectacle, open **Family → Create invite link** and tap **Send by text or email**. The message contains
-   the app download link and the invite.
-2. They tap the download link, install the app, copy your message, open Spectacle and tap **Paste my invite**.
+1. In Tailscale's admin page, open **Machines**, tap ⋯ next to the Spectacle server, choose **Share…** and copy
+   an invite link. Share links are single-use, so make one per person. They only get access to this one server.
+2. In Spectacle, open **Family**, paste that link, tap **Create invite link**, then **Send by text or email**.
+3. They follow the message: install Tailscale and sign in, accept the share, install Spectacle, tap **Paste my invite**.
+
+If Tailscale is switched off on their phone, Spectacle shows "Can't reach home" with a button that opens Tailscale,
+and the "Watching for alerts" notification changes to tell them alerts aren't arriving.
 
 Download link (always the latest version):
 **https://github.com/superclearice97-droid/spectacle/releases/latest/download/Spectacle.apk**
@@ -66,14 +71,15 @@ fingerprint. Away from home, use Tailscale. Building and signing releases: [docs
 - **IP camera:** enter its RTSP address, e.g. `rtsp://user:pass@192.168.1.20:554/h264Preview_01_main`. H.264 cameras play everywhere; H.265 recordings may not play in every browser (choose H.264 in the camera's settings if you can).
 - **Old phone / webcam:** add it, tap **Get pairing link** and send the message to the camera phone. On it, install the app, tap **Paste my invite**, tick the notice and press Start (or open the link in Chrome). Keep the page open, screen on and charger plugged in (browsers stop the camera in the background). "Dim screen" blacks out the display. The microphone is never used.
 
-## Remote access & phone notifications
+## Remote access (Tailscale)
 
-Phone notifications (and installing as an app) need a **trusted** HTTPS address; the self-signed one only works for viewing at home. The easiest secure option, with no port forwarding:
+`./install.sh` offers to do this for you. It installs Tailscale, publishes Spectacle privately on your tailnet, and
+fills in `publicUrl`. To do it by hand:
 
 1. Install [Tailscale](https://tailscale.com) on the server and on each family phone (free for personal use).
 2. On the server: `sudo tailscale serve --bg 8080`
-3. Open the `https://<server>.<tailnet>.ts.net` address it prints, on each phone. Put it in `config.json` → `publicUrl`.
-4. In the app: Settings → Notifications → Turn on.
+3. Put the `https://<server>.<tailnet>.ts.net` address it prints in `config.json` → `publicUrl`, then
+   `sudo systemctl restart spectacle`. Invites now use this address, so they work at home and away.
 
 Don't expose Spectacle to the internet with router port forwarding.
 
@@ -111,7 +117,7 @@ Nothing leaves your home unless you switch it on:
 | Species explanations download | **Off** (asked at install) | Species names only, once, to Wikipedia / Wikimedia Commons / GBIF |
 | Phone notifications (Web Push) | **Off** (each person opts in) | End-to-end encrypted alert text via the browser's push service |
 | ntfy alerts | **Off** | Camera name + time, to the ntfy server you choose |
-| Remote access (Tailscale) | **Off** | Encrypted traffic through your tailnet |
+| Remote access (Tailscale) | Offered at install; needed for use away from home | End-to-end encrypted traffic; Tailscale sees account and device info, not video |
 
 No analytics, ads, telemetry or accounts with anyone but your own server. Phone cameras never use the microphone; IP-camera audio is off by default.
 
