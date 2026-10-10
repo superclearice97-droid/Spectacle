@@ -127,6 +127,8 @@ Read and adjust before sharing with family:
 - `public/legal/privacy.html` — what's collected, who sees it, what leaves the home
 - `public/legal/terms.html` — terms and disclaimer (not a professional alarm; IDs can be wrong)
 - `public/legal/recording-laws.html` — where you can record, audio consent, GDPR notes
+- `docs/camera-notice-template.md` — signs and messages for visitors, carers and rentals
+- `LEGAL-REVIEW.md` — what's covered and what to check before sharing outside your family
 - `THIRD_PARTY_NOTICES.txt` — model (Apache-2.0), Wikipedia (CC BY-SA 4.0), GBIF (CC BY 4.0) and Commons attributions
 
 Built-in safeguards: every member accepts the terms and the presence notice at sign-up (and again if terms change); adding a camera requires a placement acknowledgement; audio is off and needs a separate confirmation; phone cameras never use the mic; recordings auto-expire; members can export or delete their account.
