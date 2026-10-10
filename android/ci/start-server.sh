@@ -15,7 +15,8 @@ EOF
 SPECTACLE_CONFIG="$T/config.json" nohup node server/index.js > "$T/server.log" 2>&1 &
 for i in $(seq 1 50); do curl -sk https://127.0.0.1:8443/api/state >/dev/null && break; sleep 0.2; done
 H=(-sk -H 'X-Spectacle: 1' -H 'Content-Type: application/json' -c "$T/jar" -b "$T/jar")
-curl "${H[@]}" https://127.0.0.1:8443/api/setup -d '{"name":"CI Admin","username":"ciadmin","password":"ci-password-123","consent":{"terms":true,"presence":true}}' >/dev/null
+SETUP=$(sed -n 's/^Spectacle setup code: //p' "$T/data/SETUP-CODE.txt")
+curl -f "${H[@]}" https://127.0.0.1:8443/api/setup -d "{\"setupCode\":\"$SETUP\",\"name\":\"CI Admin\",\"username\":\"ciadmin\",\"password\":\"ci-password-123\",\"consent\":{\"terms\":true,\"presence\":true}}" >/dev/null
 INV=$(curl "${H[@]}" https://127.0.0.1:8443/api/invites -d '{}')
 CODE=$(node -e "const j=JSON.parse(process.argv[1]);process.stdout.write(j.code)" "$INV")
 FP=$(node -e "const j=JSON.parse(process.argv[1]);process.stdout.write(j.fp||'')" "$INV")
