@@ -57,7 +57,7 @@ jobs:
             printf '%s' "$KS" | tr -d ' \r\n\t' | base64 -d > "$RUNNER_TEMP/spectacle.jks" 2>/dev/null || { echo "::error::SPECTACLE_KEYSTORE_B64 isn't valid base64. Paste the long line from the secrets file again, with nothing else."; exit 1; }
             KS_PASS=$(printf '%s' "$KS_PASS" | tr -d '\r\n')
             if ! keytool -list -keystore "$RUNNER_TEMP/spectacle.jks" -storepass "$KS_PASS" >/dev/null 2>&1; then
-              echo "::error::The signing key couldn't be opened (size $(wc -c < "$RUNNER_TEMP/spectacle.jks") bytes, expected about 4300). Either SPECTACLE_KEYSTORE_PASSWORD is wrong ($(printf '%s' "$KS_PASS" | wc -c) characters, expected 32) or SPECTACLE_KEYSTORE_B64 is incomplete ($(printf '%s' "$KS" | tr -d ' \r\n\t' | wc -c) characters, expected 5736)."
+              echo "::error::The signing key couldn't be opened (size $(wc -c < "$RUNNER_TEMP/spectacle.jks") bytes, expected about 1018). Either SPECTACLE_KEYSTORE_PASSWORD is wrong ($(printf '%s' "$KS_PASS" | wc -c) characters, expected 32) or SPECTACLE_KEYSTORE_B64 is incomplete ($(printf '%s' "$KS" | tr -d ' \r\n\t' | wc -c) characters, expected 1360)."
               exit 1
             fi
             keytool -list -keystore "$RUNNER_TEMP/spectacle.jks" -storepass "$KS_PASS" -alias spectacle >/dev/null 2>&1 || { echo "::error::The key inside the keystore isn't named 'spectacle'."; exit 1; }
