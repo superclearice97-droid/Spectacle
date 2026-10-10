@@ -86,12 +86,15 @@ class MainActivity : Activity() {
                 if (pin != null && cert != null && Prefs.originOf(error.url) == prefs.server && Tls.fingerprint(cert) == pin) handler.proceed()
                 else handler.cancel()
             }
+            override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) { loadFailed = false }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 // Only the page itself failing matters (not a single image).
-                if (request.isForMainFrame) showOffline(true)
+                if (request.isForMainFrame) { loadFailed = true; showOffline(true) }
             }
             override fun onPageFinished(view: WebView, url: String) {
-                if (url.startsWith("http")) showOffline(false)
+                // Android still "finishes" its own error page; keep our friendly screen up in that case.
+                if (loadFailed) return
+                showOffline(false)
                 maybeOnboard(url)
                 val cameraMode = Uri.parse(url).path?.startsWith("/camera") == true
                 if (cameraMode) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -147,6 +150,7 @@ class MainActivity : Activity() {
     }
 
     // ---------- friendly "can't reach home" screen (instead of a browser error page) ----------
+    private var loadFailed = false
     private lateinit var offline: LinearLayout
     private lateinit var offlineText: TextView
     private lateinit var offlineTs: Button
