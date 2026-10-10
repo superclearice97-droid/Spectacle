@@ -35,7 +35,7 @@ class Socket extends EventEmitter {
       if (op === 0x9) { this._send(0xA, payload); continue; }
       if (op === 0xA) { this.alive = true; continue; }
       if (op === 0x1 || op === 0x2) { this.frags = [payload]; this.fragOp = op; }
-      else if (op === 0x0) this.frags.push(payload);
+      else if (op === 0x0) { this.frags.push(payload); if (this.frags.reduce((t, f) => t + f.length, 0) > MAX_MSG) return this.close(1009); }
       if (fin && this.frags.length) {
         const msg = Buffer.concat(this.frags); this.frags = [];
         this.emit('message', this.fragOp === 0x1 ? msg.toString('utf8') : msg, this.fragOp === 0x2);

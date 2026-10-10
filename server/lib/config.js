@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const vault = require('./vault');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DEFAULTS = {
@@ -13,7 +14,9 @@ const DEFAULTS = {
   https: { enabled: true, host: '0.0.0.0', port: 8443, cert: 'certs/cert.pem', key: 'certs/key.pem' },
   publicUrl: '',              // e.g. https://spectacle.your-tailnet.ts.net — used in notification links
   contactEmail: '',           // used in the Web Push "sub" claim and Wikipedia User-Agent (optional)
-  recording: { segmentMinutes: 10, retentionDays: 14, minFreeGB: 5 },
+  // Recordings in progress are kept in memory (stagingDir 'auto' = /dev/shm when it has room) and encrypted
+  // onto disk as each segment finishes, so footage never sits unencrypted on the disk.
+  recording: { segmentMinutes: 10, retentionDays: 14, minFreeGB: 5, stagingDir: 'auto' },
   live: { fps: 8, width: 960, quality: 7 },
   motion: { fps: 4, cooldownSec: 60 },
   biome: { enabled: true, intervalSec: 60, minConfidence: 0.6, dedupeMinutes: 30, groups: ['insect', 'plant', 'bird'], tiles: true },
@@ -39,15 +42,19 @@ function loadConfig() {
   cfg.dataDir = path.resolve(ROOT, cfg.dataDir);
   for (const k of ['cert', 'key']) cfg.https[k] = path.resolve(ROOT, cfg.https[k]);
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 });
-  // Secrets live in data/secrets.json (created once, never commit it).
+  try { fs.chmodSync(cfg.dataDir, 0o700); } catch {}
+  vault.init(cfg.dataDir);
+  // Secrets live in data/secrets.json (encrypted, created once, never commit it).
   const sfile = path.join(cfg.dataDir, 'secrets.json');
-  let secrets = fs.existsSync(sfile) ? JSON.parse(fs.readFileSync(sfile, 'utf8')) : {};
+  const sraw = fs.existsSync(sfile) ? fs.readFileSync(sfile) : null;
+  let secrets = sraw ? vault.openJSON(sraw) : {};
+  if (sraw && !vault.isSealedJSON(sraw)) vault.writeJSON(sfile, secrets);
   if (!secrets.vapid) {
     const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     const jwk = publicKey.export({ format: 'jwk' });
     const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
     secrets.vapid = { publicKey: raw.toString('base64url'), privatePem: privateKey.export({ format: 'pem', type: 'pkcs8' }) };
-    fs.writeFileSync(sfile, JSON.stringify(secrets, null, 2), { mode: 0o600 });
+    vault.writeJSON(sfile, secrets);
   }
   cfg.secrets = secrets;
   cached = cfg;

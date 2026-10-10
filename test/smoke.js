@@ -32,7 +32,12 @@ async function call(p, body, method) {
   try {
     for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/state'); break; } catch { await sleep(100); } }
     console.log('Accounts & consent');
-    await call('/api/setup', { name: 'Test Admin', username: 'admin', password: 'correct horse battery', consent: { terms: true, presence: true } });
+    let noCode = false; try { await call('/api/setup', { name: 'X', username: 'intruder', password: 'correct horse battery', consent: { terms: true, presence: true } }); } catch { noCode = true; }
+    ok(noCode, 'admin account can\'t be claimed without the setup code');
+    const anonState = await (await fetch(BASE + '/api/state')).json(); ok(anonState.armed === undefined, 'signed-out visitors can\'t see whether the alarm is armed');
+    const code = /setup code: (\S+)/.exec(fs.readFileSync(path.join(tmp, 'data/SETUP-CODE.txt'), 'utf8'))[1];
+    await call('/api/setup', { setupCode: code, name: 'Test Admin', username: 'admin', password: 'correct horse battery', consent: { terms: true, presence: true } });
+    ok(!fs.existsSync(path.join(tmp, 'data/SETUP-CODE.txt')), 'setup code removed once used');
     const st = await call('/api/state'); ok(st.user && st.user.role === 'admin', 'first account becomes admin');
     let rejected = false; try { await call('/api/cameras', { name: 'x', type: 'browser' }); } catch { rejected = true; } ok(rejected, 'camera needs placement acknowledgement');
     const { camera } = await call('/api/cameras', { name: 'Garden', type: 'browser', ackPlacement: true });
@@ -93,7 +98,9 @@ async function call(p, body, method) {
     feeder.kill(); ws.close(); await sleep(3000);
     const recs = await call(`/api/cameras/${camera.id}/recordings`);
     ok(recs.recordings.length && recs.recordings[0].size > 100000, `recording written (${recs.recordings.map(r => (r.size / 1e6).toFixed(1) + ' MB').join(', ')})`);
-    const probe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path.join(tmp, 'data/recordings', camera.id, recs.recordings[0].file)]);
+    const dl = await fetch(`${BASE}/media/rec/${camera.id}/${recs.recordings[0].file}`, { headers: { Cookie: cookie } });
+    const recFile = path.join(tmp, 'download.mp4'); fs.writeFileSync(recFile, Buffer.from(await dl.arrayBuffer()));
+    const probe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', recFile]);
     let dur = ''; probe.stdout.on('data', d => dur += d); await new Promise(r => probe.on('close', r));
     ok(parseFloat(dur) > 5, `recording is playable MP4 (${parseFloat(dur).toFixed(1)}s)`);
     const rr = await fetch(`${BASE}/media/rec/${camera.id}/${recs.recordings[0].file}`, { headers: { Cookie: cookie, Range: 'bytes=0-99' } });
@@ -103,6 +110,30 @@ async function call(p, body, method) {
     const anon = await fetch(`${BASE}/api/cameras/${camera.id}/snapshot`); ok(anon.status === 401, 'camera feed requires sign-in');
     const csrf = await fetch(BASE + '/api/armed', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: '{"armed":false}' }); ok(csrf.status === 403, 'cross-site requests blocked');
     const trav = await fetch(`${BASE}/media/rec/${camera.id}/..%2F..%2Fsecrets.json`, { headers: { Cookie: cookie } }); ok(trav.status === 404, 'path traversal blocked');
+
+    console.log('Encryption at rest');
+    const D = path.join(tmp, 'data'), readAll = d => fs.readdirSync(d, { recursive: true }).map(f => path.join(d, f)).filter(f => fs.statSync(f).isFile());
+    for (const f of ['accounts.json', 'settings.json', 'events.json', 'biome.json', 'secrets.json']) ok(fs.readFileSync(path.join(D, f)).subarray(0, 4).toString() === 'SPXJ', `${f} is encrypted`);
+    ok(!fs.readFileSync(path.join(D, 'accounts.json')).includes('admin'), 'usernames are not readable on disk');
+    const sealed = await (async () => { for (let i = 0; i < 30; i++) { const enc = fs.existsSync(path.join(D, 'recordings', camera.id)) ? fs.readdirSync(path.join(D, 'recordings', camera.id)).filter(f => f.endsWith('.spx')) : []; if (enc.length) return enc; await sleep(1000); } return []; })();
+    ok(sealed.length && readAll(path.join(D, 'recordings')).every(f => f.endsWith('.spx') && !fs.readFileSync(f).includes('ftyp')), 'finished recordings are encrypted on disk');
+    ok(readAll(path.join(D, 'events')).every(f => fs.readFileSync(f)[0] !== 0xff), 'motion snapshots are encrypted on disk');
+    ok(readAll(path.join(D, 'biome')).filter(f => f.endsWith('.jpg')).every(f => fs.readFileSync(f)[0] !== 0xff), 'biome photos are encrypted on disk');
+    const snapUrl = `${BASE}/media/events/${camera.id}/${ev.events[0].snapshot}`;
+    const snap = await fetch(snapUrl, { headers: { Cookie: cookie } }); const sb = Buffer.from(await snap.arrayBuffer());
+    ok(snap.ok && sb[0] === 0xff && sb[1] === 0xd8 && snap.headers.get('cache-control') === 'no-store', 'signed-in family get the decrypted picture, never cached');
+
+    console.log('Hardening');
+    const evil = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, { headers: { Cookie: cookie, Origin: 'https://evil.example.com' } });
+    const evilOpen = await new Promise(r => { evil.onopen = () => r(true); evil.onerror = () => r(false); evil.onclose = () => r(false); });
+    ok(!evilOpen, 'WebSocket from another website refused');
+    const notImg = await fetch(BASE + '/api/identify', { method: 'POST', headers: { 'X-Spectacle': '1', 'Content-Type': 'application/octet-stream', Cookie: cookie }, body: '#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\nfile:///etc/passwd\n' });
+    ok(notImg.status === 400, 'uploads that aren\'t photos are refused before ffmpeg sees them');
+    let badPush = false; try { await call('/api/push/subscribe', { subscription: { endpoint: 'https://192.168.1.1/admin', keys: { p256dh: 'x', auth: 'y' } } }); } catch { badPush = true; } ok(badPush, 'push subscriptions limited to real push services');
+    const second = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'X-Spectacle': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'correct horse battery' }) });
+    const other = second.headers.get('set-cookie').split(';')[0];
+    await call('/api/me/password', { current: 'correct horse battery', next: 'an even longer passphrase' });
+    const otherNow = await fetch(BASE + '/api/cameras', { headers: { Cookie: other } }); ok(otherNow.status === 401, 'changing the password signs out other devices');
     viewer.close();
     console.log('\nAll checks passed.');
   } catch (e) { console.error('\n' + e.message); process.exitCode = 1; }

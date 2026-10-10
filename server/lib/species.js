@@ -25,7 +25,7 @@ function decodeJpeg(ffmpeg, jpeg) {
   const size = jpegSize(jpeg);
   if (!size) return Promise.reject(new Error('Not a JPEG'));
   return new Promise((resolve, reject) => {
-    const p = spawn(ffmpeg, ['-v', 'error', '-f', 'image2pipe', '-i', 'pipe:0', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
+    const p = spawn(ffmpeg, ['-v', 'error', '-protocol_whitelist', 'pipe', '-f', 'jpeg_pipe', '-i', 'pipe:0', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
     const chunks = [];
     p.stdout.on('data', c => chunks.push(c));
     p.on('error', reject);

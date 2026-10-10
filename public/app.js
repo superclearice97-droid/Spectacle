@@ -382,6 +382,7 @@ function authPage(mode, invite) {
   const appCard = mode === 'join' && !IN_APP && /Android/i.test(navigator.userAgent) ? `<div class="card stack" style="margin-bottom:14px"><h2>Use the Spectacle app</h2><p class="small">It's easier and sends you alerts. Install it, then come back to this page and tap "Open in the app".</p><div class="row"><a class="btn primary" href="${esc(S.appUrl || '#')}">1. Get the app</a><a class="btn" href="spectacle://join?link=${encodeURIComponent(location.href)}">2. Open in the app</a></div></div>` : '';
   view.innerHTML = `<div class="auth"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><use href="/icon.svg#mark"/></svg><h1>${title}</h1><p class="muted">${sub}</p>${appCard}
    <form class="card stack" id="af">
+    ${mode === 'setup' ? '<label class="f">Setup code<input type="text" name="setupCode" autocomplete="one-time-code" autocapitalize="characters" required placeholder="XXXXX-XXXXX"><span class="small muted" style="font-weight:400">Shown when Spectacle was installed. On the server it\'s also in <span class="mono">data/SETUP-CODE.txt</span>. It makes sure only you can create the admin account.</span></label>' : ''}
     ${mode !== 'consent' ? `${mode !== 'login' ? '<label class="f">Your name<input type="text" name="name" autocomplete="name" required maxlength="40"></label>' : ''}
     <label class="f">Username<input type="text" name="username" autocomplete="username" required autocapitalize="none"></label>
     <label class="f">Password${mode !== 'login' ? ' (10+ characters)' : ''}<input type="password" name="password" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required></label>` : ''}
@@ -393,7 +394,7 @@ function authPage(mode, invite) {
     const consent = f.terms ? { terms: f.terms.checked, presence: f.presence.checked } : null;
     try {
       if (mode === 'login') await api('/api/login', { method: 'POST', body: { username: f.username.value, password: f.password.value }, allow401: true });
-      else if (mode === 'setup') await api('/api/setup', { method: 'POST', body: { name: f.name.value, username: f.username.value, password: f.password.value, consent } });
+      else if (mode === 'setup') await api('/api/setup', { method: 'POST', body: { setupCode: f.setupCode.value, name: f.name.value, username: f.username.value, password: f.password.value, consent } });
       else if (mode === 'join') await api('/api/register', { method: 'POST', body: { invite, name: f.name.value, username: f.username.value, password: f.password.value, consent } });
       else await api('/api/me/consent', { method: 'POST', body: consent });
       if (mode === 'join') history.replaceState(null, '', '/#cameras');

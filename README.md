@@ -34,7 +34,9 @@ cd spectacle
 
 This installs Node 22 + ffmpeg if needed, makes an HTTPS certificate, asks whether you want the optional species explanations, and installs a `spectacle` systemd service so it runs 24/7 and starts on boot. No `npm install` is needed — there are no dependencies.
 
-Then open `https://<server-ip>:8443` on your phone, accept the certificate warning, and create the admin account.
+Then open `https://<server-ip>:8443` on your phone, accept the certificate warning, and create the admin account using the **setup code** the installer printed (also in `data/SETUP-CODE.txt` until it's used).
+
+Everything Spectacle stores is encrypted on the server; see [SECURITY.md](SECURITY.md). To export a recording or photo outside the app, run `npm run decrypt -- <encrypted file> <output file>` on the server.
 
 Manual run: `npm start` · Tests: `npm test` · Logs: `journalctl -u spectacle -f`
 

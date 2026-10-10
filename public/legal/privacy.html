@@ -38,7 +38,7 @@
 <ul>
 <li>Every signed-in family member can watch all cameras, recordings, motion events and the biome log.</li>
 <li>Administrators can add and remove cameras and members.</li>
-<li>Anyone with physical or administrator access to the server computer can read everything stored on it.</li>
+<li>Stored data is encrypted, but someone with administrator access to the running server computer could still read it. Keep the server's login private and its software updated.</li>
 </ul>
 
 <h2>What leaves your home</h2>
@@ -66,7 +66,7 @@
 </ul>
 
 <h2>Security</h2>
-<p>Passwords are hashed with scrypt; sessions use random tokens in HttpOnly, SameSite cookies; repeated wrong passwords are rate-limited; camera pairing links can be revoked by generating a new one. Use the HTTPS address (or Tailscale) so traffic is encrypted. Do not expose the server directly to the internet with port forwarding.</p>
+<p>Everything Spectacle stores on the server (accounts, settings, the motion and biome logs, snapshots, photos and recordings) is encrypted with AES-256. The key is sealed to the server computer (using its TPM security chip when it has one), so a copied or stolen disk can't be read elsewhere. Recordings in progress are held in memory and encrypted as each segment finishes. Passwords are hashed with scrypt; sessions use random tokens in HttpOnly, SameSite cookies; repeated wrong passwords are rate-limited; changing your password signs out your other devices; camera pairing links can be revoked by generating a new one. Video and photos are sent with instructions not to be stored in browser caches. Use the HTTPS address (or Tailscale) so traffic is encrypted. Do not expose the server directly to the internet with port forwarding.</p>
 
 <h2>Children</h2>
 <p>Children may appear in household footage. Accounts are intended for adults and supervised teens the administrator chooses to invite.</p>

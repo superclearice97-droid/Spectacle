@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Store } = require('./store');
+const vault = require('./vault');
 const { parseLabel, slug, decodeJpeg, planCrops } = require('./species');
 
 const GROUP_NAMES = { insect: 'Insects & bugs', plant: 'Plants & flowers', bird: 'Birds' };
@@ -34,7 +35,7 @@ class Biome {
       Object.keys(t).length ? `**Classification:** ${['kingdom', 'phylum', 'class', 'order', 'family', 'genus'].map(k => t[k]).filter(Boolean).join(' › ')}` : '', '',
       '## What it is', '', info && info.summary ? info.summary : '_No offline explanation yet. Run `npm run species-db` while online to download it._', '',
       '## In your yard', '',
-      `- First seen: ${sp.firstSeen}`, `- Last seen: ${sp.lastSeen}`, `- Times detected: ${sp.count}`, `- Cameras: ${Object.keys(sp.cameras).join(', ')}`,
+      `- First seen: ${sp.firstSeen.slice(0, 10)}`, `- Times detected: ${sp.count}`, '- Photos are encrypted; open them in the Spectacle app.',
       `- Status: ${sp.status}${sp.status === 'unreviewed' ? ' (automatic ID — confirm it in the app)' : ''}`, '',
       info && info.source ? `---\nExplanation text from Wikipedia, “${info.source.title}” (${info.source.url}), licensed ${info.source.license} (${info.source.licenseUrl}). Taxonomy from GBIF (CC BY 4.0).` : '',
       '_Identifications are automatic and can be wrong. Never eat, touch or handle anything based on this app._',
@@ -44,10 +45,21 @@ class Biome {
 
   async saveCrop(jpeg, img, crop, file) {
     const c = [Math.round(crop.w), Math.round(crop.h), Math.round(crop.x), Math.round(crop.y)].map(v => Math.max(0, v));
-    await new Promise(res => {
-      const p = spawn(this.cfg.ffmpeg, ['-v', 'error', '-y', '-f', 'image2pipe', '-i', 'pipe:0', '-vf', `crop=${c[0]}:${c[1]}:${c[2]}:${c[3]},scale='min(640,iw)':-2`, '-q:v', '4', file]);
-      p.on('close', res); p.on('error', res); p.stdin.on('error', () => {}); p.stdin.end(jpeg);
+    const out = await new Promise(res => {
+      const p = spawn(this.cfg.ffmpeg, ['-v', 'error', '-protocol_whitelist', 'pipe', '-f', 'jpeg_pipe', '-i', 'pipe:0', '-vf', `crop=${c[0]}:${c[1]}:${c[2]}:${c[3]},scale='min(640,iw)':-2`, '-q:v', '4', '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1']);
+      const chunks = []; p.stdout.on('data', d => chunks.push(d));
+      p.on('close', () => res(Buffer.concat(chunks))); p.on('error', () => res(Buffer.alloc(0))); p.stdin.on('error', () => {}); p.stdin.end(jpeg);
     });
+    vault.writeFile(file, out.length ? out : jpeg);                 // photos are encrypted at rest
+  }
+  /* Encrypt biome photos saved by older versions. */
+  encryptOldPhotos() {
+    let n = 0;
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p); else if (e.name.endsWith('.jpg') && path.basename(d) === 'photos' && !vault.isSealedFile(p)) { const st = fs.statSync(p); vault.writeFile(p, fs.readFileSync(p)); fs.utimesSync(p, st.atime, st.mtime); n++; } } };
+    if (fs.existsSync(this.dir)) walk(this.dir);
+    for (const sp of Object.values(this.store.data.species)) try { this.writeInfo(sp); } catch {}
+    return n;
   }
 
   // Analyse one camera frame. `box` = recent motion region (normalised) if any.

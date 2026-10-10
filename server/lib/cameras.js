@@ -5,6 +5,22 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const { MotionDetector, MW, MH } = require('./motion');
+const vault = require('./vault');
+
+// Where segments are written while they're still being recorded. RAM (/dev/shm) when it has room, so
+// unencrypted footage never touches the disk; finished segments are encrypted into data/recordings.
+let stagingRoot = null;
+function staging(cfg) {
+  if (stagingRoot) return stagingRoot;
+  const want = cfg.recording.stagingDir;
+  let dir = want && want !== 'auto' ? path.resolve(cfg.root, want) : null;
+  if (!dir) {
+    try { const s = fs.statfsSync('/dev/shm'); if (s.bavail * s.bsize > 1.5e9) dir = path.join('/dev/shm', 'spectacle-' + (process.getuid ? process.getuid() : 'u')); } catch {}
+  }
+  dir = dir || path.join(cfg.dataDir, 'staging');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); try { fs.chmodSync(dir, 0o700); } catch {}
+  return (stagingRoot = dir);
+}
 
 class CameraPipe extends EventEmitter {
   constructor(cam, cfg) {
@@ -13,26 +29,27 @@ class CameraPipe extends EventEmitter {
     this.viewers = new Set(); this.proc = null; this.stopped = true; this.backoff = 2000;
     this.motion = new MotionDetector(cam.motion ? cam.motion.sensitivity : 5);
     this.recDir = path.join(cfg.dataDir, 'recordings', cam.id);
+    this.stageDir = path.join(staging(cfg), cam.id);
   }
   args() {
     const { cam, cfg } = this; const live = cfg.live;
     const a = ['-hide_banner', '-loglevel', 'error', '-nostdin'];
-    if (cam.type === 'rtsp') a.push('-rtsp_transport', 'tcp', '-timeout', '10000000', '-fflags', 'nobuffer', '-i', cam.url);
-    else a.push('-fflags', '+genpts', '-i', 'pipe:0');
+    if (cam.type === 'rtsp') a.push('-protocol_whitelist', 'rtsp,rtsps,tcp,udp,tls,rtp,srtp,crypto', '-rtsp_transport', 'tcp', '-timeout', '10000000', '-fflags', 'nobuffer', '-i', cam.url);
+    else a.push('-protocol_whitelist', 'pipe', '-f', 'webm', '-fflags', '+genpts', '-i', 'pipe:0');
     // 1) live view
     a.push('-map', '0:v:0', '-an', '-vf', `fps=${live.fps},scale='min(${live.width},iw)':-2`, '-q:v', String(live.quality), '-f', 'mjpeg', 'pipe:1');
     // 2) motion analysis frames
     a.push('-map', '0:v:0', '-an', '-vf', `fps=${cfg.motion.fps},scale=${MW}:${MH},format=gray`, '-f', 'rawvideo', 'pipe:3');
     // 3) continuous recording, fragmented MP4 so a power cut never corrupts a whole file
     if (cam.record !== false) {
-      fs.mkdirSync(this.recDir, { recursive: true });
+      fs.mkdirSync(this.stageDir, { recursive: true, mode: 0o700 });
       a.push('-map', '0:v:0');
       if (cam.audio && cam.type === 'rtsp') a.push('-map', '0:a:0?', '-c:a', 'aac'); else a.push('-an');
       if (cam.type === 'rtsp') a.push('-c:v', 'copy');
       else a.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-g', '30', '-pix_fmt', 'yuv420p', '-vf', "scale='min(1280,iw)':-2");
       a.push('-f', 'segment', '-segment_time', String(cfg.recording.segmentMinutes * 60), '-segment_format', 'mp4',
         '-segment_format_options', 'movflags=+frag_keyframe+empty_moov+default_base_moof', '-strftime', '1', '-reset_timestamps', '1',
-        path.join(this.recDir, '%Y-%m-%d_%H-%M-%S.mp4'));
+        path.join(this.stageDir, '%Y-%m-%d_%H-%M-%S.mp4'));
     }
     return a;
   }
@@ -62,6 +79,7 @@ class CameraPipe extends EventEmitter {
     p.on('close', () => {
       if (this.proc !== p) return; // an older process we already replaced
       this.proc = null;
+      this.emit('ended');
       if (errTail.trim()) this.lastError = errTail.trim().split('\n').pop();
       this.setStatus('offline');
       if (!this.stopped && this.cam.type === 'rtsp') {
@@ -97,13 +115,14 @@ class CameraManager extends EventEmitter {
   get list() { return this.settings.data.cameras; }
   get(id) { return this.list.find(c => c.id === id); }
   pipe(id) { return this.pipes.get(id); }
-  startAll() { for (const c of this.list) this.ensure(c); }
+  startAll() { for (const c of this.list) this.ensure(c); this.sealer = setInterval(() => this.seal(), 20000); this.sealer.unref(); }
   ensure(cam) {
     let p = this.pipes.get(cam.id);
     if (!p) {
       p = new CameraPipe(cam, this.cfg);
       p.on('status', s => this.emit('status', cam.id, s));
       p.on('motion', hit => this.emit('motion', cam, hit, p));
+      p.on('ended', () => setTimeout(() => this.seal(cam.id), 1500));
       this.pipes.set(cam.id, p);
     }
     if (cam.type === 'rtsp' && cam.enabled !== false) p.start();
@@ -114,14 +133,49 @@ class CameraManager extends EventEmitter {
   status(id) { const p = this.pipes.get(id); return p ? { status: p.status, lastFrame: p.latestAt, error: p.lastError || null } : { status: 'offline' }; }
 
   // ---- recordings ----
+  recDir(camId) { return path.join(this.cfg.dataDir, 'recordings', camId); }
+  stageDir(camId) { return path.join(staging(this.cfg), camId); }
+  /* Path of a recording: the encrypted file, or the segment still being recorded (in memory). */
+  recordingFile(camId, file) {
+    if (!/^[\w.-]+\.mp4$/.test(file) || !/^[\w-]+$/.test(camId)) return null;
+    const live = path.join(this.stageDir(camId), file); if (fs.existsSync(live)) return { file: live, sealed: false };
+    const enc = path.join(this.recDir(camId), file + '.spx'); if (fs.existsSync(enc)) return { file: enc, sealed: true };
+    return null;
+  }
   recordings(camId, day) {
-    const dir = path.join(this.cfg.dataDir, 'recordings', camId);
-    if (!fs.existsSync(dir)) return [];
-    return fs.readdirSync(dir).filter(f => f.endsWith('.mp4') && (!day || f.startsWith(day))).sort().reverse().map(f => {
-      const st = fs.statSync(path.join(dir, f));
-      const m = /^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})/.exec(f);
-      return { file: f, start: m ? new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}`).toISOString() : null, size: st.size, end: st.mtime.toISOString() };
-    });
+    const out = new Map();
+    const add = (dir, f, name, sealed) => {
+      if (!name.endsWith('.mp4') || (day && !name.startsWith(day))) return;
+      let st, size; try { st = fs.statSync(path.join(dir, f)); size = sealed ? vault.plainSize(path.join(dir, f)) : st.size; } catch { return; }
+      const m = /^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})/.exec(name);
+      out.set(name, { file: name, start: m ? new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}`).toISOString() : null, size, end: st.mtime.toISOString() });
+    };
+    for (const [dir, sealed] of [[this.recDir(camId), true], [this.stageDir(camId), false]]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const f of fs.readdirSync(dir)) add(dir, f, sealed ? f.replace(/\.spx$/, '') : f, sealed && f.endsWith('.spx'));
+    }
+    return [...out.values()].sort((a, b) => b.file.localeCompare(a.file));
+  }
+  /* Encrypt finished segments (and any unencrypted footage left by older versions) into data/recordings. */
+  seal(onlyCam) {
+    const root = staging(this.cfg);
+    const dirs = [];
+    if (fs.existsSync(root)) for (const cam of fs.readdirSync(root)) if (!onlyCam || cam === onlyCam) dirs.push([path.join(root, cam), cam]);
+    const recRoot = path.join(this.cfg.dataDir, 'recordings');
+    if (fs.existsSync(recRoot)) for (const cam of fs.readdirSync(recRoot)) if (!onlyCam || cam === onlyCam) dirs.push([path.join(recRoot, cam), cam]);
+    for (const [dir, cam] of dirs) {
+      let files; try { files = fs.readdirSync(dir).filter(f => f.endsWith('.mp4')).sort(); } catch { continue; }
+      const p = this.pipes.get(cam), recording = p && p.proc;
+      files.forEach((f, i) => {
+        const src = path.join(dir, f);
+        let st; try { st = fs.statSync(src); } catch { return; }
+        const newest = i === files.length - 1;
+        if (newest && recording && Date.now() - st.mtimeMs < 60000 && dir.startsWith(root)) return;   // still being written
+        if (st.size === 0) { fs.rmSync(src, { force: true }); return; }
+        const dst = path.join(this.recDir(cam), f + '.spx');
+        try { vault.encryptFile(src, dst); fs.utimesSync(dst, st.atime, st.mtime); } catch (e) { console.warn('encrypting recording', f, e.message); }
+      });
+    }
   }
   findSegment(camId, ts) {
     for (const r of this.recordings(camId, new Date(ts).toISOString().slice(0, 10)).concat(this.recordings(camId))) {
@@ -130,6 +184,7 @@ class CameraManager extends EventEmitter {
     return null;
   }
   sweep() {
+    this.seal();
     const root = path.join(this.cfg.dataDir, 'recordings');
     if (!fs.existsSync(root)) return;
     const cutoff = Date.now() - this.cfg.recording.retentionDays * 864e5;
@@ -146,7 +201,11 @@ class CameraManager extends EventEmitter {
     } catch {}
     // Same retention for motion snapshots.
     const ev = path.join(this.cfg.dataDir, 'events');
-    if (fs.existsSync(ev)) for (const cam of fs.readdirSync(ev)) for (const f of fs.readdirSync(path.join(ev, cam))) { const p = path.join(ev, cam, f); if (fs.statSync(p).mtimeMs < cutoff) fs.rmSync(p, { force: true }); }
+    if (fs.existsSync(ev)) for (const cam of fs.readdirSync(ev)) for (const f of fs.readdirSync(path.join(ev, cam))) {
+      const p = path.join(ev, cam, f); const st = fs.statSync(p);
+      if (st.mtimeMs < cutoff) fs.rmSync(p, { force: true });
+      else if (f.endsWith('.jpg') && !vault.isSealedFile(p)) { try { vault.writeFile(p, fs.readFileSync(p)); fs.utimesSync(p, st.atime, st.mtime); } catch {} }   // encrypt older snapshots
+    }
   }
 }
 

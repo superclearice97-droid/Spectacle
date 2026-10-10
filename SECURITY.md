@@ -27,7 +27,20 @@ Only the latest commit on `main` receives security fixes.
 
 ## Built-in protections
 
-scrypt password hashing · random session tokens in HttpOnly, SameSite=Strict cookies · login rate limiting ·
-CSRF header check on every state-changing request · strict Content-Security-Policy · path-traversal checks on
-all media routes · encrypted Web Push (RFC 8291) · systemd sandboxing (`ProtectSystem=strict`) · no third-party
-runtime dependencies (nothing to supply-chain).
+- **Encryption at rest:** accounts, settings, the motion log, biome log, secrets, motion snapshots, biome photos
+  and recordings are encrypted with AES-256-GCM (per-file keys, 64 KiB authenticated chunks, so tampering is
+  detected). The master key is sealed with `systemd-creds` (bound to the TPM chip when present) by `install.sh`;
+  otherwise it lives in `data/vault.key` (mode 600). Segments still being recorded stay in RAM (`/dev/shm`) and
+  are encrypted to disk as soon as they finish, so unencrypted footage never touches the disk.
+- **Accounts:** scrypt password hashing · constant-work sign-in (doesn't reveal which usernames exist) · per-account
+  and per-address rate limiting on sign-in, invites and setup · first admin account requires the one-time setup
+  code printed by the installer · changing a password signs out every other device.
+- **Web:** random session tokens in HttpOnly, SameSite=Strict cookies · CSRF header check on every state-changing
+  request · WebSocket Origin check · strict Content-Security-Policy, `frame-ancestors 'none'`, COOP/CORP ·
+  footage and photos sent with `Cache-Control: no-store` so they never land in browser caches · signed-out
+  visitors can't see whether the system is armed.
+- **Media handling:** ffmpeg only ever opens the camera stream or our own pipe (`-protocol_whitelist`); uploads
+  must be JPEG, PNG or WebP and are decoded with a fixed demuxer · path-traversal checks on all media routes.
+- **Other:** encrypted Web Push (RFC 8291), push endpoints limited to real browser push services · systemd
+  sandboxing (`ProtectSystem=strict`, no capabilities, restricted namespaces and address families,
+  `UMask=0077`) · no third-party runtime dependencies (nothing to supply-chain).
