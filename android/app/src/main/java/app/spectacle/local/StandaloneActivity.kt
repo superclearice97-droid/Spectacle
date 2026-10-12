@@ -227,7 +227,7 @@ class StandaloneActivity : ComponentActivity() {
         val view = Preview.Builder().build().also { it.setSurfaceProvider(preview?.surfaceProvider) }
         val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
         analysis.setAnalyzer(analysisWorker) { image -> analyze(image) }
-        val video = VideoCapture.withOutput(Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.SD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))).build())
+        val video = VideoCapture.withOutput(Recorder.Builder().setQualitySelector(QualitySelector.from(when (settings.getInt("camera_quality", 1)) { 0 -> Quality.LOWEST; 2 -> Quality.HD; else -> Quality.SD }, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))).build())
         try {
             p.bindToLifecycle(this, selector, view, analysis, video); capture = video
             say("Live · local motion detection and offline species scans")
@@ -435,6 +435,27 @@ class StandaloneActivity : ComponentActivity() {
             text = label; textSize = 18f; setTextColor(getColor(R.color.ink)); isChecked = settings.getBoolean(key, default)
             setOnCheckedChangeListener { _, on -> settings.edit().putBoolean(key, on).apply() }
         }) }
+        fun choice(label: String, key: String, options: Array<String>, values: IntArray, default: Int, onChange: (() -> Unit)? = null) {
+            content.addView(text(label, 16f))
+            val spinner = android.widget.Spinner(this).apply {
+                adapter = android.widget.ArrayAdapter(this@StandaloneActivity, android.R.layout.simple_spinner_dropdown_item, options)
+                setSelection(values.indexOf(settings.getInt(key, default)).coerceAtLeast(0))
+                onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                    override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                    override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                        val value = values[position]
+                        if (settings.getInt(key, default) != value) {
+                            settings.edit().putInt(key, value).apply()
+                            onChange?.invoke()
+                        }
+                    }
+                }
+            }
+            content.addView(spinner)
+        }
+        choice("Archive maximum size", "archive_mb", arrayOf("250 MB", "500 MB", "1 GB", "2 GB", "5 GB", "10 GB"), intArrayOf(250, 500, 1000, 2000, 5000, 10000), 500) { LocalVault.io.execute { vault.prune() } }
+        choice("Keep recordings and events for", "retention_days", arrayOf("1 day", "3 days", "7 days", "14 days", "30 days", "90 days"), intArrayOf(1, 3, 7, 14, 30, 90), 7) { LocalVault.io.execute { vault.prune() } }
+        choice("Camera video quality (applies next time camera starts)", "camera_quality", arrayOf("Compact · lowest supported", "Balanced · SD", "Clear · HD"), intArrayOf(0, 1, 2), 1)
         toggle("Save motion snapshots", "motion", true)
         toggle("Automatic offline biome scans", "biome", true)
         content.addView(text("Motion sensitivity (higher detects smaller changes)", 16f))
@@ -450,7 +471,7 @@ class StandaloneActivity : ComponentActivity() {
             else say("Local motion notifications are enabled in Android notification settings.")
         })
         content.addView(text("Completed footage, photos and archive metadata use AES-GCM with an Android Keystore key. The current recording is temporarily plaintext in private app storage; exports are plaintext in the location you choose. Uninstalling deletes the local archive and its key. Export items you want to keep.", 16f))
-        content.addView(text("The archive automatically removes items older than 7 days and the oldest items above 500 MB. This mode uses this phone's camera. IP cameras and family sharing are available in optional shared-server mode.", 16f))
+        content.addView(text("The archive automatically removes items beyond your chosen retention and storage limits. This mode uses this phone's camera. IP cameras and family sharing are available in optional shared-server mode.", 16f))
         content.addView(button("Connect to a shared server (optional)") {
             Prefs(this).standalone = false
             startActivity(Intent(this, SetupActivity::class.java)); finish()
