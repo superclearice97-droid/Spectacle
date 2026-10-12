@@ -3,6 +3,7 @@ package app.spectacle.local
 import android.app.*
 import android.content.*
 import android.media.MediaCodec
+import android.media.MediaCodecList
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
@@ -31,6 +32,7 @@ class ScreenRecorderService : Service() {
     private var muxer: MediaMuxer? = null
     private var file: File? = null
     private var worker: Thread? = null
+    private var inputSurface: Surface? = null
     private val running = AtomicBoolean(false)
     private var callback: MediaProjection.Callback? = null
 
@@ -72,6 +74,7 @@ class ScreenRecorderService : Service() {
             codec = encoder
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val surface: Surface = encoder.createInputSurface()
+            inputSurface = surface
             file = File(filesDir, "local-recording-screen-${System.currentTimeMillis()}.mp4")
             val m = MediaMuxer(file!!.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             muxer = m
@@ -84,7 +87,7 @@ class ScreenRecorderService : Service() {
                 var track = -1
                 var started = false
                 try {
-                    while (running.get()) {
+                    while (running.get() || !Thread.currentThread().isInterrupted) {
                         val index = encoder.dequeueOutputBuffer(info, 100_000)
                         if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                             track = m.addTrack(encoder.outputFormat); m.start(); started = true
@@ -95,15 +98,18 @@ class ScreenRecorderService : Service() {
                                 m.writeSampleData(track, buffer, info)
                             }
                             encoder.releaseOutputBuffer(index, false)
+                            if (!running.get() && info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
                         }
+                        if (!running.get() && index == MediaCodec.INFO_TRY_AGAIN_LATER) break
                     }
                 } catch (_: Exception) {
                 } finally {
                     runCatching { if (started) m.stop() }
                     runCatching { m.release() }
                     runCatching { encoder.stop(); encoder.release() }
+                    runCatching { inputSurface?.release() }; inputSurface = null
                     val output = file
-                    if (output != null && output.length() > 0) {
+                    if (output != null && output.length() > 0 && started) {
                         runCatching {
                             val vault = LocalVault(applicationContext)
                             output.inputStream().use { vault.save(it, "video", "Screen event recording") }
@@ -121,7 +127,8 @@ class ScreenRecorderService : Service() {
         runCatching { display?.release() }; display = null
         val p = projection; projection = null
         runCatching { callback?.let { p?.unregisterCallback(it) }; p?.stop() }
-        if (Thread.currentThread() != worker) worker?.interrupt()
+        // Allow the encoder thread to drain buffered frames and finalize the MP4.
+        // Interrupting it here can corrupt short event recordings.
     }
     override fun onDestroy() { stopCapture(); super.onDestroy() }
 }
