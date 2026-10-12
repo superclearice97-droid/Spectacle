@@ -61,7 +61,7 @@ async function start() {
   session.defaultSession.setPermissionCheckHandler((wc, permission, requestOrigin, details) =>
     trusted(wc, requestOrigin) && (permission === 'media' && details.mediaType === 'video' || ['notifications', 'fullscreen'].includes(permission)));
   // Forward local motion/species alerts to Linux notifications, including while minimized.
-  session.defaultSession.cookies.on('changed', async () => {
+  const connectAlerts = async () => {
     alertSocket?.close(); alertSocket = null;
     const cookies = await session.defaultSession.cookies.get({ url: origin, name: 'sp_session' });
     if (!cookies.length || quitting) return;
@@ -73,7 +73,9 @@ async function start() {
       n.on('click', () => { win?.show(); win?.focus(); if (typeof m.url === 'string' && m.url.startsWith('/#')) win?.loadURL(origin + m.url); }); n.show();
     };
     ws.onerror = () => {};
-  });
+  };
+  session.defaultSession.cookies.on('changed', connectAlerts);
+  await connectAlerts();
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Spectacle', submenu: [
       { label: 'Use this computer’s camera', click: useWebcam },
