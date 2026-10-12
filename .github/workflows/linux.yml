@@ -1,0 +1,34 @@
+name: Linux desktop
+on:
+  push:
+    branches: ['**']
+    paths: ['desktop/**', 'server/**', 'public/**', 'models/**', '.github/workflows/linux.yml']
+  pull_request:
+    paths: ['desktop/**', 'server/**', 'public/**', 'models/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb libgtk-3-0 libnss3 libasound2t64
+      - run: npm ci --prefix desktop
+      - name: Test local Linux runtime and embedded browser
+        run: |
+          xvfb-run -a desktop/node_modules/.bin/electron --no-sandbox desktop/test.cjs
+          xvfb-run -a desktop/node_modules/.bin/electron --no-sandbox desktop/test-main.cjs
+      - name: Build Linux installers
+        run: npm run dist --prefix desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Spectacle-linux
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.tar.gz

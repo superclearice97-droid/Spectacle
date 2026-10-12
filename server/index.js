@@ -395,7 +395,11 @@ wsLib.heartbeat(() => [...clients.keys(), ...devices]);
 
 // ---------------- start ----------------
 let servers = 0;
-if (cfg.http.enabled) { const s = http.createServer(onRequest); s.on('upgrade', onUpgrade); s.listen(cfg.http.port, cfg.http.host, () => console.log(`Spectacle listening on http://${cfg.http.host}:${cfg.http.port}`)); servers++; }
+if (cfg.http.enabled) { const s = http.createServer(onRequest); s.on('upgrade', onUpgrade); s.listen(cfg.http.port, cfg.http.host, () => {
+  const origin = `http://${cfg.http.host}:${s.address().port}`;
+  console.log(`Spectacle listening on ${origin}`);
+  if (process.env.SPECTACLE_DESKTOP === '1' && process.parentPort) process.parentPort.postMessage({ type: 'ready', origin });
+}); servers++; }
 if (cfg.https.enabled) {
   if (fs.existsSync(cfg.https.cert) && fs.existsSync(cfg.https.key)) {
     const s = https.createServer({ cert: fs.readFileSync(cfg.https.cert), key: fs.readFileSync(cfg.https.key) }, onRequest); s.on('upgrade', onUpgrade);
@@ -410,3 +414,6 @@ const st = identifier.dbStats();
 console.log(st.total ? `Offline species database: ${st.explained}/${st.total} species explained` : 'Offline species database not downloaded yet — run: npm run species-db');
 const shutdown = () => { for (const c of cams.list) cams.remove(c.id); auth.store.flush(); settings.flush(); events.flush(); biome.store.flush(); setTimeout(() => process.exit(0), 1500); };
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
+
+// Electron's local runtime requests the same orderly shutdown as a system service.
+if (process.env.SPECTACLE_DESKTOP === '1' && process.parentPort) process.parentPort.on('message', e => { if (e.data?.type === 'shutdown') shutdown(); });

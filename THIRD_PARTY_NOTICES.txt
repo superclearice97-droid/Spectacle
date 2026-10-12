@@ -68,3 +68,18 @@ Web Push delivery uses your browser vendor's push service (e.g. Google Firebase
 Cloud Messaging for Chrome). ntfy (https://ntfy.sh) if you configure it.
 Tailscale (https://tailscale.com) if you choose it for remote access. These
 services have their own terms.
+
+Standalone application dependencies
+-----------------------------------
+Linux desktop uses Electron (MIT) and electron-builder (MIT); distributed Electron
+packages include Chromium and dependency licenses in LICENSES.chromium.html.
+Electron: https://github.com/electron/electron
+electron-builder: https://github.com/electron-userland/electron-builder
+FFmpeg is installed separately by the user's Linux package manager; it is not
+bundled in Spectacle installers. https://ffmpeg.org/legal.html
+Android standalone mode uses AndroidX Activity/Core/CameraX (Apache-2.0) and
+TensorFlow Lite 2.17.0 (Apache-2.0).
+AndroidX: https://android.googlesource.com/platform/frameworks/support/
+TensorFlow: https://github.com/tensorflow/tensorflow/blob/v2.17.0/LICENSE
+The Android APK includes the same iNaturalist models and model notices already
+listed above, copied into assets/models at build time.

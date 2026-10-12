@@ -11,6 +11,10 @@ class Prefs(context: Context) {
         get() = sp.getString("server", null)
         set(v) { sp.edit().putString("server", v).apply() }
 
+    var standalone: Boolean
+        get() = sp.getBoolean("standalone", false)
+        set(v) { sp.edit().putBoolean("standalone", v).apply() }
+
     /** SHA-256 of the server certificate (lowercase hex), only for self-signed servers. */
     var pin: String?
         get() = sp.getString("pin", null)?.takeIf { it.isNotEmpty() }

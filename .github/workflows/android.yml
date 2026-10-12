@@ -4,9 +4,9 @@ on:
   push:
     branches: ['**']
     tags: ['v*']
-    paths: ['android/**', '.github/workflows/android.yml', 'package.json']
+    paths: ['android/**', 'models/**', '.github/workflows/android.yml', 'package.json']
   pull_request:
-    paths: ['android/**']
+    paths: ['android/**', 'models/**', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:
@@ -104,6 +104,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: Spectacle-apk
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
       - name: Start a test Spectacle server
         run: bash android/ci/start-server.sh
       - name: Enable KVM
@@ -118,8 +125,12 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: python3 android/ci/emulator_test.py
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          script: |
+            gradle -p android --no-daemon connectedDebugAndroidTest
+            adb uninstall app.spectacle.family
+            python3 android/ci/standalone_test.py
+            python3 android/ci/emulator_test.py
 
   release:
     if: needs.build.outputs.release == 'true'

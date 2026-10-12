@@ -1,4 +1,11 @@
 <p align="center"><img src="public/icon-192.png" width="88" alt=""></p>
+
+## New: independent apps for Linux and Android
+
+Spectacle now includes a **Linux desktop app** that runs its own local camera server, and **Android independent mode** for capture, motion snapshots, recordings and offline species identification on the phone itself. Each works without the other. Shared-server connections remain optional.
+
+See [installation, capabilities and current limits](docs/standalone.md). Download builds from the **Linux desktop** and **Android app** workflow artifacts on the standalone branch/PR. Android independent mode monitors while its Camera screen is open; Linux supports its own webcam and RTSP cameras.
+
 <h1 align="center">Spectacle</h1>
 <p align="center"><b>Private, self-hosted family security cameras — with a backyard biome log.</b></p>
 <p align="center">

@@ -5,3 +5,9 @@ node_modules/
 *.jks
 *.keystore
 keystore-b64.txt
+
+desktop/dist/
+desktop/vendor/
+android/.gradle/
+android/**/build/
+__pycache__/

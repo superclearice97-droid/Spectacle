@@ -1,0 +1,75 @@
+{
+  "name": "spectacle-desktop",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Independent offline Spectacle camera app for Linux",
+  "author": "Spectacle contributors",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "app.spectacle.desktop",
+    "productName": "Spectacle",
+    "asar": true,
+    "files": [
+      "main.js",
+      "runtime.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../server",
+        "to": "spectacle/server"
+      },
+      {
+        "from": "../public",
+        "to": "spectacle/public"
+      },
+      {
+        "from": "../models",
+        "to": "spectacle/models"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.txt",
+        "to": "spectacle/THIRD_PARTY_NOTICES.txt"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "spectacle/LICENSE"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
+      "category": "Video",
+      "icon": "../public/icon-512.png",
+      "artifactName": "Spectacle-${version}-${arch}.${ext}",
+      "maintainer": "superclearice97-droid <239508797+superclearice97-droid@users.noreply.github.com>"
+    },
+    "deb": {
+      "depends": [
+        "ffmpeg",
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libdrm2",
+        "libgbm1"
+      ]
+    }
+  },
+  "homepage": "https://github.com/superclearice97-droid/Spectacle"
+}
