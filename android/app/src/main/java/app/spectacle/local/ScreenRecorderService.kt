@@ -63,10 +63,12 @@ class ScreenRecorderService : Service() {
             p.registerCallback(callback!!, Handler(Looper.getMainLooper()))
             val metrics = resources.displayMetrics
             val profile = intent.getIntExtra(PROFILE, 1).coerceIn(0, 2)
-            val height = intArrayOf(360, 480, 720)[profile]
+            val targetHeight = intArrayOf(360, 480, 720)[profile]
             val fps = intArrayOf(10, 15, 15)[profile]
             val bitrate = intArrayOf(220_000, 400_000, 750_000)[profile]
-            val width = ((height.toFloat() * metrics.widthPixels / metrics.heightPixels).toInt().coerceAtLeast(2) / 2) * 2
+            val portrait = metrics.heightPixels >= metrics.widthPixels
+            val height = if (portrait) ((targetHeight * metrics.heightPixels.toFloat() / metrics.widthPixels).toInt().coerceAtLeast(2) / 2) * 2 else targetHeight
+            val width = if (portrait) targetHeight else ((targetHeight * metrics.widthPixels.toFloat() / metrics.heightPixels).toInt().coerceAtLeast(2) / 2) * 2
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
