@@ -23,6 +23,7 @@ class ScreenRecorderService : Service() {
         const val STOP = "app.spectacle.local.STOP_SCREEN"
         const val RESULT = "result"
         const val DATA = "data"
+        const val PROFILE = "profile"
         const val CHANNEL = "spectacle_screen_record"
     }
     private var projection: MediaProjection? = null
@@ -61,12 +62,17 @@ class ScreenRecorderService : Service() {
             callback = object : MediaProjection.Callback() { override fun onStop() { stopCapture() } }
             p.registerCallback(callback!!, Handler(Looper.getMainLooper()))
             val metrics = resources.displayMetrics
-            val width = ((480f * metrics.widthPixels / metrics.heightPixels).toInt().coerceAtLeast(2) / 2) * 2
-            val height = 480
+            val profile = intent.getIntExtra(PROFILE, 1).coerceIn(0, 2)
+            val targetHeight = intArrayOf(360, 480, 720)[profile]
+            val fps = intArrayOf(10, 15, 15)[profile]
+            val bitrate = intArrayOf(220_000, 400_000, 750_000)[profile]
+            val portrait = metrics.heightPixels >= metrics.widthPixels
+            val height = if (portrait) ((targetHeight * metrics.heightPixels.toFloat() / metrics.widthPixels).toInt().coerceAtLeast(2) / 2) * 2 else targetHeight
+            val width = if (portrait) targetHeight else ((targetHeight * metrics.widthPixels.toFloat() / metrics.heightPixels).toInt().coerceAtLeast(2) / 2) * 2
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, 400_000)
-                setInteger(MediaFormat.KEY_FRAME_RATE, 15)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
             }
             val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)

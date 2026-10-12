@@ -21,6 +21,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Independent on-device archive. Nothing in this class opens a network connection. */
 class LocalVault(context: Context) {
+    private val preferences = context.getSharedPreferences("spectacle-local", Context.MODE_PRIVATE)
     val directory = File(context.filesDir, "standalone").apply { mkdirs() }
     private val index = AtomicFile(File(directory, "index.spx"))
     private val key: SecretKey = KeyStore.getInstance("AndroidKeyStore").run {
@@ -87,9 +88,11 @@ class LocalVault(context: Context) {
     @Synchronized fun prune() {
         val all = entries().toMutableList()
         val removed = mutableListOf<JSONObject>()
-        val cutoff = System.currentTimeMillis() - 7L * 86400000
+        val retentionDays = preferences.getInt("retention_days", 7).coerceIn(1, 90)
+        val maxMegabytes = preferences.getInt("archive_mb", 500).coerceIn(100, 20_000)
+        val cutoff = System.currentTimeMillis() - retentionDays.toLong() * 86400000
         var total = all.sumOf { File(directory, it.getString("id") + ".spx").length() }
-        while (all.isNotEmpty() && (all.last().getLong("time") < cutoff || total > 500L * 1024 * 1024)) {
+        while (all.isNotEmpty() && (all.last().getLong("time") < cutoff || total > maxMegabytes.toLong() * 1024 * 1024)) {
             val item = all.removeAt(all.lastIndex); removed.add(item)
             total -= File(directory, item.getString("id") + ".spx").length()
         }
