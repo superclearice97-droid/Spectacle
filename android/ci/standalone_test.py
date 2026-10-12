@@ -52,7 +52,7 @@ try:
     wait_text('Live', 45); time.sleep(3)
     tap('Save a photo')
     wait_text('Saved:', 90)
-    tap('Start recording'); wait_text('REC'); time.sleep(5); tap('Stop recording'); time.sleep(3)
+    tap('Start recording'); wait_text('REC ·'); time.sleep(5); tap('Stop recording'); time.sleep(3)
     tap('Archive'); wait_text('photo'); wait_text('video')
     tap('View'); tap('Close')
     # Restart with no saved server address and no network; the archive must persist.
@@ -64,6 +64,9 @@ try:
     tap('Delete'); tap('Delete')
     wait_text('Nothing saved yet')
     print('PASS: Android local mode opens, captures, records, classifies, persists and deletes offline without a PC/server.')
+except Exception:
+    print(sh('adb', 'logcat', '-d', '-s', 'SpectacleCamera:W', 'AndroidRuntime:E', 'Recorder:W', 'Camera2CameraImpl:W'))
+    raise
 finally:
     sh('adb', 'shell', 'svc', 'wifi', 'enable')
     sh('adb', 'shell', 'svc', 'data', 'enable')

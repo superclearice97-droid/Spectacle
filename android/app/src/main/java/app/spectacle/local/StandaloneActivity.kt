@@ -50,6 +50,34 @@ class StandaloneActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val analysisWorker = Executors.newSingleThreadExecutor()
     private val classifying = AtomicBoolean(false)
+    private val previewAnalyzing = AtomicBoolean(false)
+    private var analyzeFromPreview = false
+    private val previewAnalysis = object : Runnable {
+        override fun run() {
+            if (!monitor || !resumed || !analyzeFromPreview) return
+            if (previewAnalyzing.compareAndSet(false, true)) {
+                val bitmap = preview?.bitmap
+                if (bitmap == null) previewAnalyzing.set(false)
+                else analysisWorker.execute {
+                    try {
+                        if (monitor && resumed) {
+                            val small = Bitmap.createScaledBitmap(bitmap, 32, 24, true)
+                            val pixels = IntArray(32 * 24); small.getPixels(pixels, 0, 32, 0, 0, 32, 24)
+                            if (small !== bitmap) small.recycle()
+                            val gray = pixels.map { ((it shr 16 and 255) * 77 + (it shr 8 and 255) * 150 + (it and 255) * 29) shr 8 }.toIntArray()
+                            val kind = snapshotKind(gray, System.currentTimeMillis())
+                            if (kind != null) {
+                                try { saveSnapshot(bitmap, kind, settings.getBoolean("biome", true)) }
+                                finally { classifying.set(false) }
+                            }
+                        }
+                    } catch (e: Exception) { onMain { say("Snapshot could not be saved: ${e.message}") } }
+                    finally { bitmap.recycle(); previewAnalyzing.set(false) }
+                }
+            }
+            main.postDelayed(this, 500)
+        }
+    }
     private var provider: ProcessCameraProvider? = null
     private var capture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
@@ -192,6 +220,7 @@ class StandaloneActivity : ComponentActivity() {
     private fun bindCamera() {
         val p = provider ?: return
         previous = null
+        analyzeFromPreview = false; main.removeCallbacks(previewAnalysis)
         p.unbindAll()
         val selector = CameraSelector.Builder().requireLensFacing(lens).build()
         val view = Preview.Builder().build().also { it.setSurfaceProvider(preview?.surfaceProvider) }
@@ -201,12 +230,33 @@ class StandaloneActivity : ComponentActivity() {
         try {
             p.bindToLifecycle(this, selector, view, analysis, video); capture = video
             say("Live · local motion detection and offline species scans")
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.w("SpectacleCamera", "Three-stream capture unavailable; trying compatibility mode", e)
+            // Some LIMITED cameras cannot bind three streams. Share the preview's bitmap
+            // for analysis so recording still works with a two-stream camera session.
             try {
-                p.unbindAll(); p.bindToLifecycle(this, selector, view, analysis); capture = null
-                say("Live · this camera supports photos and motion, but not simultaneous video recording.")
-            } catch (e: Exception) { stopCamera(); say("Camera unavailable: ${e.message}") }
+                p.unbindAll(); p.bindToLifecycle(this, selector, view, video); capture = video
+                analyzeFromPreview = true; main.post(previewAnalysis)
+                say("Live · compatibility mode: recording with motion detection from the preview")
+            } catch (e: Exception) {
+                android.util.Log.w("SpectacleCamera", "Video capture unavailable; using photos", e)
+                try {
+                    p.unbindAll(); p.bindToLifecycle(this, selector, view, analysis); capture = null
+                    say("Live · this camera supports photos and motion but no video recording.")
+                } catch (e: Exception) { stopCamera(); say("Camera unavailable: ${e.message}") }
+            }
         }
+    }
+    private fun snapshotKind(gray: IntArray, now: Long): String? {
+        val prev = previous; previous = gray
+        val threshold = settings.getInt("threshold", 18)
+        val moved = prev != null && gray.indices.count { abs(gray[it] - prev[it]) > threshold } > gray.size / 12
+        val motion = settings.getBoolean("motion", true) && moved && now - lastMotion > 15000
+        val scan = settings.getBoolean("biome", true) && now - lastScan > 60000
+        if ((!motion && !scan) || !classifying.compareAndSet(false, true)) return null
+        if (motion) lastMotion = now
+        if (scan) lastScan = now
+        return if (motion) "motion" else "sighting"
     }
     private fun analyze(image: ImageProxy) {
         try {
@@ -220,14 +270,8 @@ class StandaloneActivity : ComponentActivity() {
                 val pos = (y * image.height / 24) * plane.rowStride + (x * image.width / 32) * plane.pixelStride
                 gray[y * 32 + x] = buffer.get(pos).toInt() and 255
             }
-            val prev = previous; previous = gray
-            val threshold = settings.getInt("threshold", 18)
-            val moved = prev != null && gray.indices.count { abs(gray[it] - prev[it]) > threshold } > gray.size / 12
-            val motion = settings.getBoolean("motion", true) && moved && now - lastMotion > 15000
-            val scan = settings.getBoolean("biome", true) && now - lastScan > 60000
-            if ((motion || scan) && classifying.compareAndSet(false, true)) {
-                if (motion) lastMotion = now
-                if (scan) lastScan = now
+            val kind = snapshotKind(gray, now)
+            if (kind != null) {
                 var bitmap: Bitmap? = null
                 try {
                     bitmap = image.toBitmap()
@@ -236,7 +280,7 @@ class StandaloneActivity : ComponentActivity() {
                         if (rotated !== bitmap) bitmap.recycle()
                         bitmap = rotated
                     }
-                    saveSnapshot(bitmap, if (motion) "motion" else "sighting", settings.getBoolean("biome", true))
+                    saveSnapshot(bitmap, kind, settings.getBoolean("biome", true))
                 } finally { bitmap?.recycle(); classifying.set(false) }
             }
         } catch (e: Exception) { onMain { say("Snapshot could not be saved: ${e.message}") } }
@@ -318,6 +362,7 @@ class StandaloneActivity : ComponentActivity() {
     }
     private fun stopCamera() {
         monitor = false; stopRecording(false)
+        analyzeFromPreview = false; main.removeCallbacks(previewAnalysis)
         provider?.unbindAll(); capture = null
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }

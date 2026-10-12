@@ -53,7 +53,7 @@ Recording uses one-minute MP4 segments, with a 40 MB segment size limit. Complet
 
 The local archive retains at most **7 days / 500 MB**, deleting oldest items automatically. Motion snapshots have a 15-second cooldown; automatic classification runs at most once per minute. The bundled iNaturalist models cover limited species and can be wrong; automatic sightings need at least 60% model confidence. Internet is not used for capture or classification. No taxonomy/explanation download is required.
 
-**Current limits:** Android independent mode uses the phone's built-in cameras and monitors only while the Camera screen is open. Leaving it, locking/backgrounding the app, or switching mode stops capture and finalizes the current recording. It does not provide an always-on background camera service, RTSP ingestion, family accounts, or archive sync. Some cameras cannot support preview, analysis and video together; those fall back to preview, photos and motion detection with an explicit message. Linux retains the full existing multi-camera server features.
+**Current limits:** Android independent mode uses the phone's built-in cameras and monitors only while the Camera screen is open. Leaving it, locking/backgrounding the app, or switching mode stops capture and finalizes the current recording. It does not provide an always-on background camera service, RTSP ingestion, family accounts, or archive sync. Cameras that cannot support three simultaneous streams use a compatibility mode with video recording and motion analysis sampled from the preview. Cameras without compatible video support fall back to preview/photos with an explicit message. Linux retains the full existing multi-camera server features.
 
 ## Optional shared server
 
