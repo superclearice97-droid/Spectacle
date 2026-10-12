@@ -12,12 +12,21 @@ def nodes():
 
 def tap(label, timeout=30):
     end = time.time() + timeout
+    attempts = 0
     while time.time() < end:
-        for n in nodes():
-            if label.lower() in n.attrib.get('text', '').lower():
-                b = list(map(int, re.findall(r'\d+', n.attrib['bounds'])))
-                if b[3] > b[1]:
-                    sh('adb', 'shell', 'input', 'tap', str((b[0]+b[2])//2), str((b[1]+b[3])//2)); time.sleep(1); return
+        ns = nodes()
+        matches = [n for n in ns if label.lower() in n.attrib.get('text', '').lower() and n.attrib.get('clickable') == 'true']
+        matches.sort(key=lambda n: n.attrib.get('text', '').lower() != label.lower())
+        for n in matches:
+            b = list(map(int, re.findall(r'\d+', n.attrib['bounds'])))
+            if b[3] > b[1] and b[2] > b[0]:
+                sh('adb', 'shell', 'input', 'tap', str((b[0]+b[2])//2), str((b[1]+b[3])//2)); time.sleep(1); return
+        # Controls below the preview must be reachable on small emulator/phone screens.
+        size = list(map(int, re.findall(r'\d+', sh('adb', 'shell', 'wm', 'size'))))[-2:]
+        x, low, high = size[0]//2, int(size[1]*0.82), int(size[1]*0.45)
+        y1, y2 = (low, high) if attempts % 8 < 4 else (high, low)
+        sh('adb', 'shell', 'input', 'swipe', str(x), str(y1), str(x), str(y2), '300')
+        attempts += 1
         time.sleep(1)
     raise RuntimeError('Missing control: ' + label)
 
