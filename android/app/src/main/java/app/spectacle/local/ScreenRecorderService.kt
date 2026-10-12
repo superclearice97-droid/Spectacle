@@ -3,7 +3,6 @@ package app.spectacle.local
 import android.app.*
 import android.content.*
 import android.media.MediaCodec
-import android.media.MediaCodecList
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
@@ -87,7 +86,7 @@ class ScreenRecorderService : Service() {
                 var track = -1
                 var started = false
                 try {
-                    while (running.get() || !Thread.currentThread().isInterrupted) {
+                    while (true) {
                         val index = encoder.dequeueOutputBuffer(info, 100_000)
                         if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                             track = m.addTrack(encoder.outputFormat); m.start(); started = true
