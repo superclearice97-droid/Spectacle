@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server/index.js",
     "species-db": "node server/scripts/build-species-db.js",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js",
+    "decrypt": "node server/scripts/decrypt.js"
   },
   "dependencies": {}
 }

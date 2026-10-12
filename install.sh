@@ -57,6 +57,32 @@ case "$CHOICE" in
   *) echo "Skipped. You can run 'npm run species-db' any time (add --no-images to skip reference photos)." ;;
 esac
 
+# ---------- Encryption key, sealed to this machine ----------
+# Everything Spectacle saves (accounts, recordings, snapshots, photos) is encrypted. The key is sealed with
+# systemd-creds: tied to this computer's TPM security chip when it has one, so a copied or stolen disk
+# can't be read anywhere else. Without systemd-creds the key stays in data/vault.key (owner-only).
+LOAD_KEY=""
+if command -v systemctl >/dev/null && command -v systemd-creds >/dev/null && systemd-creds encrypt --help >/dev/null 2>&1; then
+  CRED=/etc/spectacle/spectacle-key.cred
+  if ! need_sudo test -f "$CRED"; then
+    say "Sealing Spectacle's encryption key to this machine"
+    need_sudo install -d -m 700 /etc/spectacle
+    TMPKEY=$(mktemp); chmod 600 "$TMPKEY"
+    if [ -f data/vault.key ]; then cp data/vault.key "$TMPKEY"; else head -c 32 /dev/urandom | base64 > "$TMPKEY"; fi
+    if need_sudo systemd-creds encrypt --name=spectacle-key --with-key=auto "$TMPKEY" "$CRED" \
+       && need_sudo systemd-creds decrypt --name=spectacle-key "$CRED" - | cmp -s - "$TMPKEY"; then
+      need_sudo chmod 600 "$CRED"
+      [ -f data/vault.key ] && { shred -u data/vault.key 2>/dev/null || rm -f data/vault.key; }
+      echo "Key sealed ($(need_sudo systemd-creds has-tpm2 >/dev/null 2>&1 && echo 'with the TPM chip' || echo 'to this machine'))."
+    else
+      echo "Couldn't seal the key; Spectacle will keep it in data/vault.key instead."
+      need_sudo rm -f "$CRED"; [ -f data/vault.key ] || { mkdir -p data; cp "$TMPKEY" data/vault.key; chmod 600 data/vault.key; }
+    fi
+    shred -u "$TMPKEY" 2>/dev/null || rm -f "$TMPKEY"
+  fi
+  need_sudo test -f "$CRED" && LOAD_KEY="LoadCredentialEncrypted=spectacle-key:$CRED"
+fi
+
 if command -v systemctl >/dev/null; then
   say "Installing the spectacle service (runs 24/7, starts on boot)"
   need_sudo tee /etc/systemd/system/spectacle.service >/dev/null <<EOF
@@ -72,19 +98,39 @@ ExecStart=$(command -v node) $DIR/server/index.js
 Restart=always
 RestartSec=3
 Nice=5
+$LOAD_KEY
 # Hardening
+UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=$DIR/data
 PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
 EOF
-  mkdir -p data && chown -R "$RUN_USER" data
+  mkdir -p data && chmod 700 data && chown -R "$RUN_USER" data
   need_sudo systemctl daemon-reload
   need_sudo systemctl enable --now spectacle
+  need_sudo systemctl restart spectacle
 fi
+
+# The first admin account needs this code, so nobody else on the network can claim it first.
+for _ in $(seq 1 20); do [ -f data/SETUP-CODE.txt ] && break; sleep 0.5; done
+SETUP_CODE=$(sed -n 's/^Spectacle setup code: //p' data/SETUP-CODE.txt 2>/dev/null || true)
 
 # ---------- Private access from anywhere (Tailscale) ----------
 # Optional. Gives the server a private https://<name>.ts.net address with a real certificate, reachable only
@@ -124,7 +170,8 @@ IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 cat <<EOF
 
 Spectacle is running.
-  At home:   https://${IP:-this-computer}:8443   (accept the certificate warning once per device)
+${SETUP_CODE:+  Setup code: $SETUP_CODE   (you'll enter this when creating the admin account)
+}  At home:   https://${IP:-this-computer}:8443   (accept the certificate warning once per device)
   Anywhere:  ${TS_URL:-not set up yet (see README: Tailscale)}
 Invite family from the Family tab. Each invite message tells them how to install Tailscale and Spectacle.
 Logs:  journalctl -u spectacle -f

@@ -30,6 +30,6 @@ Each release also has `Spectacle.apk.sha256` so you can check a download wasn't 
 ## Using your own key or fork
 
 Generate a key with
-`keytool -genkeypair -alias spectacle -keyalg RSA -keysize 4096 -validity 10000 -keystore spectacle-release.jks -storetype PKCS12`,
+`keytool -genkeypair -alias spectacle -keyalg EC -groupname secp256r1 -sigalg SHA256withECDSA -validity 10000 -keystore spectacle-release.jks -storetype PKCS12`,
 base64 it (`base64 -w0 spectacle-release.jks`), add the two secrets, and set `appDownloadUrl` in `config.json`
 to your own release link.

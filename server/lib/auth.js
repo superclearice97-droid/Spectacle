@@ -7,15 +7,17 @@ const COLORS = ['#ff7a59', '#4cc9f0', '#b5e48c', '#f9c74f', '#c77dff', '#ff99c8'
 const SESSION_DAYS = 30;
 const LEGAL_VERSION = '2026-10-10';
 
+let DUMMY = null;
 class Auth {
   constructor(cfg) {
     this.store = new Store(cfg.dataDir, 'accounts', { users: [], sessions: {}, invites: {}, devices: {} });
     this.fails = new Map();
+    DUMMY = DUMMY || this.hash(crypto.randomBytes(16).toString('hex'));
   }
   get d() { return this.store.data; }
   hasUsers() { return this.d.users.length > 0; }
   hash(pw, salt = crypto.randomBytes(16).toString('hex')) { return salt + ':' + crypto.scryptSync(pw, salt, 64, { N: 16384 }).toString('hex'); }
-  verify(pw, stored) { const [salt, h] = stored.split(':'); const c = crypto.scryptSync(pw, salt, 64, { N: 16384 }); return crypto.timingSafeEqual(c, Buffer.from(h, 'hex')); }
+  verify(pw, stored) { const [salt, h] = String(stored || '').split(':'); if (!salt || !h) return false; const c = crypto.scryptSync(String(pw).slice(0, 1024), salt, 64, { N: 16384 }); return crypto.timingSafeEqual(c, Buffer.from(h, 'hex')); }
   publicUser(u) { return u && { id: u.id, name: u.name, username: u.username, role: u.role, color: u.color, prefs: u.prefs, consent: u.consent }; }
 
   createUser({ username, name, password, role, consent }) {
@@ -27,17 +29,34 @@ class Auth {
     const u = { id: crypto.randomUUID(), username, name: String(name || username).slice(0, 40), role, pw: this.hash(password), color: COLORS[this.d.users.length % COLORS.length], created: new Date().toISOString(), consent: { ...consent, version: LEGAL_VERSION, at: new Date().toISOString() }, prefs: { notify: true, mutedCams: [] }, push: [] };
     this.d.users.push(u); this.store.save(); return u;
   }
+  /* Too many failed sign-ins, setup codes or invites from one address: wait. Stops password guessing. */
+  throttle(ip) {
+    const a = this.fails.get('ip|' + ip);
+    if (a && Date.now() < a.until) throw new Error('Too many attempts. Try again in a few minutes.');
+  }
+  failed(ip) {
+    const k = 'ip|' + ip, a = this.fails.get(k) || { n: 0, until: 0, first: Date.now() };
+    if (Date.now() - a.first > 15 * 60000) { a.n = 0; a.first = Date.now(); }
+    a.n++; if (a.n >= 20) { a.until = Date.now() + 15 * 60000; a.n = 0; a.first = Date.now(); } this.fails.set(k, a);
+  }
   login(username, password, ip) {
+    this.throttle(ip);
     const k = ip + '|' + String(username).toLowerCase();
     const f = this.fails.get(k) || { n: 0, until: 0 };
     if (Date.now() < f.until) throw new Error('Too many attempts. Try again in a few minutes.');
     const u = this.d.users.find(x => x.username === String(username || '').trim().toLowerCase());
-    if (!u || !this.verify(String(password || ''), u.pw)) {
-      f.n++; if (f.n >= 5) { f.until = Date.now() + 5 * 60000; f.n = 0; } this.fails.set(k, f);
+    // Check a password even for unknown usernames, so response time doesn't reveal who has an account.
+    const good = this.verify(String(password || ''), u ? u.pw : DUMMY) && !!u;
+    if (!good) {
+      f.n++; if (f.n >= 5) { f.until = Date.now() + 5 * 60000; f.n = 0; } this.fails.set(k, f); this.failed(ip);
       throw new Error('Wrong username or password');
     }
     this.fails.delete(k);
     return this.newSession(u);
+  }
+  revokeSessions(uid, keepToken) {
+    const keep = keepToken ? this.sha(keepToken) : null;
+    for (const [k, s] of Object.entries(this.d.sessions)) if (s.uid === uid && k !== keep) delete this.d.sessions[k];
   }
   newSession(u) {
     const token = crypto.randomBytes(32).toString('base64url');
@@ -75,7 +94,7 @@ class Auth {
   }
   deviceCam(token) { const d = token && this.d.devices[this.sha(token)]; return d ? d.camId : null; }
   revokeDevices(camId) { for (const [k, v] of Object.entries(this.d.devices)) if (v.camId === camId) delete this.d.devices[k]; this.store.save(); }
-  cleanup() { const now = Date.now(); for (const [k, s] of Object.entries(this.d.sessions)) if (s.exp < now) delete this.d.sessions[k]; for (const [k, i] of Object.entries(this.d.invites)) if (i.exp < now) delete this.d.invites[k]; this.store.save(); }
+  cleanup() { const now = Date.now(); for (const [k, f] of this.fails) if ((f.until || 0) < now && now - (f.first || 0) > 15 * 60000) this.fails.delete(k); for (const [k, s] of Object.entries(this.d.sessions)) if (s.exp < now) delete this.d.sessions[k]; for (const [k, i] of Object.entries(this.d.invites)) if (i.exp < now) delete this.d.invites[k]; this.store.save(); }
 }
 
 module.exports = { Auth, LEGAL_VERSION };

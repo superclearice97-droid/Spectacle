@@ -13,6 +13,7 @@ const { Notifier } = require('./lib/notify');
 const { Identifier } = require('./lib/species');
 const { Biome } = require('./lib/biome');
 const wsLib = require('./lib/ws');
+const vault = require('./lib/vault');
 
 const cfg = loadConfig();
 const PUBLIC = path.join(cfg.root, 'public');
@@ -21,6 +22,20 @@ const settings = new Store(cfg.dataDir, 'settings', { armed: true, cameras: [] }
 const events = new Store(cfg.dataDir, 'events', { list: [] });
 const cams = new CameraManager(cfg, settings);
 const identifier = new Identifier(cfg);
+
+const SECRETS = path.join(cfg.dataDir, 'secrets.json'), CODE_FILE = path.join(cfg.dataDir, 'SETUP-CODE.txt');
+function setupCode() {
+  if (auth.hasUsers()) { if (cfg.secrets.setupCode) { delete cfg.secrets.setupCode; vault.writeJSON(SECRETS, cfg.secrets); } fs.rmSync(CODE_FILE, { force: true }); return null; }
+  if (!cfg.secrets.setupCode) {
+    const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', b = crypto.randomBytes(10);
+    cfg.secrets.setupCode = [...b].map(x => A[x % A.length]).join('').replace(/(.{5})(?=.)/g, '$1-');
+    vault.writeJSON(SECRETS, cfg.secrets);
+  }
+  fs.writeFileSync(CODE_FILE, `Spectacle setup code: ${cfg.secrets.setupCode}\nEnter it on the "Set up Spectacle" page. This file is deleted once the admin account exists.\n`, { mode: 0o600 });
+  return cfg.secrets.setupCode;
+}
+const firstCode = setupCode();
+if (firstCode) console.log(`\nSetup code for the first admin account: ${firstCode}\n(also saved in ${CODE_FILE})\n`);
 
 // ---------------- live hub (presence + alerts) ----------------
 const clients = new Map(); // ws -> { user, view, device }
@@ -59,7 +74,7 @@ cams.on('motion', (cam, hit, pipe) => {
   lastMotion.set(cam.id, now);
   const id = now.toString(36) + crypto.randomBytes(3).toString('hex');
   let snapshot = null;
-  if (pipe.latest) { const dir = path.join(cfg.dataDir, 'events', cam.id); fs.mkdirSync(dir, { recursive: true }); snapshot = id + '.jpg'; fs.writeFileSync(path.join(dir, snapshot), pipe.latest); }
+  if (pipe.latest) { snapshot = id + '.jpg'; vault.writeFile(path.join(cfg.dataDir, 'events', cam.id, snapshot), pipe.latest); }
   const ev = { id, camId: cam.id, camName: cam.name, ts: new Date(now).toISOString(), score: hit.score, box: hit.box, snapshot, notified: false };
   const armed = settings.data.armed && cam.motion && cam.motion.notify !== false;
   if (armed) { ev.notified = true; notifier.alert({ kind: 'motion', title: `Motion: ${cam.name}`, body: `Movement detected at ${new Date(now).toLocaleTimeString()}`, camId: cam.id, url: '/#event/' + id, tag: 'motion-' + cam.id }); }
@@ -91,8 +106,11 @@ setInterval(() => { cams.sweep(); auth.cleanup(); }, 10 * 60000).unref();
 // ---------------- HTTP helpers ----------------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.woff2': 'font/woff2' };
 function secHeaders(res) {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
 }
@@ -108,20 +126,29 @@ function readBody(req, limit = 1e6) {
   });
 }
 async function bodyJSON(req) { const b = await readBody(req); try { return b.length ? JSON.parse(b) : {}; } catch { throw new Error('Bad JSON'); } }
-function serveFile(req, res, file, type) {
+function serveFile(req, res, file, type, noCache) {
   let st; try { st = fs.statSync(file); } catch { return json(res, 404, { error: 'Not found' }); }
   if (!st.isFile()) return json(res, 404, { error: 'Not found' });
   const ct = type || MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
-  if (range) {
-    const start = range[1] ? +range[1] : 0, end = range[2] ? Math.min(+range[2], st.size - 1) : st.size - 1;
-    if (start >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (range && (range[1] || range[2])) {
+    let start = range[1] ? +range[1] : Math.max(0, st.size - +range[2]), end = range[1] && range[2] ? Math.min(+range[2], st.size - 1) : st.size - 1;
+    if (start >= st.size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
     res.writeHead(206, { 'Content-Type': ct, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1 });
     return fs.createReadStream(file, { start, end }).pipe(res);
   }
-  res.writeHead(200, { 'Content-Type': ct, 'Content-Length': st.size, 'Accept-Ranges': 'bytes', 'Cache-Control': ct.startsWith('text/html') ? 'no-cache' : 'private, max-age=300' });
+  res.writeHead(200, { 'Content-Type': ct, 'Content-Length': st.size, 'Accept-Ranges': 'bytes', 'Cache-Control': noCache ? 'no-store' : ct.startsWith('text/html') ? 'no-cache' : 'private, max-age=300' });
   fs.createReadStream(file).pipe(res);
 }
+/* Camera footage and photos: decrypted on the fly and never stored in browser caches. */
+function serveMedia(req, res, file, type) {
+  const h = { 'Cache-Control': 'no-store', 'Content-Disposition': 'inline' };
+  if (vault.isSealedFile(file)) return vault.serve(req, res, file, type, h);
+  res.setHeader('Cache-Control', 'no-store'); return serveFile(req, res, file, type, true);
+}
+const imageType = b => b.length > 12 && ((b[0] === 0xff && b[1] === 0xd8) || b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) || (b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP'));
+const PUSH_HOSTS = /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w-]+\.push\.services\.mozilla\.com|web\.push\.apple\.com|[\w.-]+\.notify\.windows\.com|[\w.-]+\.push\.apple\.com)\//;
+const okPush = u => typeof u === 'string' && u.length < 2000 && PUSH_HOSTS.test(u);
 const within = (base, p) => { const r = path.resolve(base, p); return r.startsWith(path.resolve(base) + path.sep) ? r : null; };
 const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
 
@@ -136,14 +163,20 @@ async function handle(req, res) {
   const need = role => { if (!user) { json(res, 401, { error: 'Please sign in' }); return false; } if (role === 'admin' && user.role !== 'admin') { json(res, 403, { error: 'Only the family admin can do that' }); return false; } return true; };
   let mm;
 
-  if (p === '/api/state' && m === 'GET') return json(res, 200, { appName: cfg.appName, setupNeeded: !auth.hasUsers(), user: auth.publicUser(user), vapidKey: cfg.secrets.vapid.publicKey, armed: settings.data.armed, legalVersion: LEGAL_VERSION, appUrl: cfg.appDownloadUrl, publicUrl: publicBase(), consentStale: user ? user.consent.version !== LEGAL_VERSION : false });
+  // Signed-out visitors learn only what the sign-in page needs (not whether the alarm is armed).
+  if (p === '/api/state' && m === 'GET') return json(res, 200, { appName: cfg.appName, setupNeeded: !auth.hasUsers(), user: auth.publicUser(user), vapidKey: user ? cfg.secrets.vapid.publicKey : undefined, armed: user ? settings.data.armed : undefined, legalVersion: LEGAL_VERSION, appUrl: cfg.appDownloadUrl, publicUrl: user ? publicBase() : undefined, consentStale: user ? user.consent.version !== LEGAL_VERSION : false });
   if (p === '/api/setup' && m === 'POST') {
     if (auth.hasUsers()) return json(res, 409, { error: 'Already set up' });
-    const b = await bodyJSON(req); const u = auth.createUser({ ...b, role: 'admin' });
+    auth.throttle(req.socket.remoteAddress);
+    const b = await bodyJSON(req); const want = cfg.secrets.setupCode || '';
+    const given = String(b.setupCode || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), real = want.replace(/-/g, '');
+    if (!real || given.length !== real.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(real))) { auth.failed(req.socket.remoteAddress); return json(res, 403, { error: 'That setup code is wrong. It was shown when Spectacle was installed (also in data/SETUP-CODE.txt on the server).' }); }
+    const u = auth.createUser({ ...b, role: 'admin' }); setupCode();
     setSession(req, res, auth.newSession(u)); return json(res, 200, { user: auth.publicUser(u) });
   }
   if (p === '/api/register' && m === 'POST') {
-    const b = await bodyJSON(req); const inv = auth.useInvite(b.invite);
+    auth.throttle(req.socket.remoteAddress);
+    const b = await bodyJSON(req); let inv; try { inv = auth.useInvite(b.invite); } catch (e) { auth.failed(req.socket.remoteAddress); throw e; }
     const u = auth.createUser({ ...b, role: inv.role === 'admin' ? 'admin' : 'member' });
     setSession(req, res, auth.newSession(u)); return json(res, 200, { user: auth.publicUser(u) });
   }
@@ -153,12 +186,12 @@ async function handle(req, res) {
   }
   if (p === '/api/logout' && m === 'POST') { const t = cookies(req).sp_session; if (t) auth.logout(t); setSession(req, res, '', 0); return json(res, 200, { ok: true }); }
 
-  if (p === '/api/me/consent' && m === 'POST') { if (!need()) return; const b = await bodyJSON(req); if (!b.terms || !b.presence) return json(res, 400, { error: 'Please accept both' }); user.consent = { ...b, version: LEGAL_VERSION, at: new Date().toISOString() }; auth.store.save(); return json(res, 200, { ok: true }); }
+  if (p === '/api/me/consent' && m === 'POST') { if (!need()) return; const b = await bodyJSON(req); if (b.terms !== true || b.presence !== true) return json(res, 400, { error: 'Please accept both' }); user.consent = { terms: true, presence: true, version: LEGAL_VERSION, at: new Date().toISOString() }; auth.store.save(); return json(res, 200, { ok: true }); }
   if (p === '/api/me/prefs' && m === 'PATCH') {
     if (!need()) return; const b = await bodyJSON(req);
     if (typeof b.notify === 'boolean') user.prefs.notify = b.notify;
     if (typeof b.biomeAlerts === 'boolean') user.prefs.biomeAlerts = b.biomeAlerts;
-    if (Array.isArray(b.mutedCams)) user.prefs.mutedCams = b.mutedCams.filter(x => typeof x === 'string');
+    if (Array.isArray(b.mutedCams)) user.prefs.mutedCams = b.mutedCams.filter(x => typeof x === 'string' && /^[\w-]{1,40}$/.test(x)).slice(0, 64);
     if (typeof b.name === 'string' && b.name.trim()) user.name = b.name.trim().slice(0, 40);
     auth.store.save(); return json(res, 200, { user: auth.publicUser(user) });
   }
@@ -166,7 +199,9 @@ async function handle(req, res) {
     if (!need()) return; const b = await bodyJSON(req);
     if (!auth.verify(String(b.current || ''), user.pw)) return json(res, 400, { error: 'Current password is wrong' });
     if (String(b.next || '').length < 10) return json(res, 400, { error: 'New password must be at least 10 characters' });
-    user.pw = auth.hash(b.next); auth.store.save(); return json(res, 200, { ok: true });
+    // A new password signs out every other device (in case the old one was known to someone else).
+    user.pw = auth.hash(b.next); auth.revokeSessions(user.id, cookies(req).sp_session); for (const [ws, c] of clients) if (c.user.id === user.id) ws.close(4003);
+    auth.store.save(); return json(res, 200, { ok: true });
   }
   if (p === '/api/me/export' && m === 'GET') { if (!need()) return; const { pw, ...mine } = user; res.setHeader('Content-Disposition', 'attachment; filename="my-spectacle-data.json"'); return json(res, 200, { account: mine, exportedAt: new Date().toISOString() }); }
   if (p === '/api/me' && m === 'DELETE') {
@@ -176,7 +211,9 @@ async function handle(req, res) {
   }
   if (p === '/api/push/subscribe' && m === 'POST') {
     if (!need()) return; const { subscription } = await bodyJSON(req);
-    if (!subscription || !/^https:\/\//.test(subscription.endpoint || '') || !subscription.keys) return json(res, 400, { error: 'Bad subscription' });
+    // Only real browser push services, so the server can't be made to send requests anywhere else.
+    if (!subscription || !okPush(subscription.endpoint) || !subscription.keys || typeof subscription.keys.p256dh !== 'string' || typeof subscription.keys.auth !== 'string') return json(res, 400, { error: 'Bad subscription' });
+    if ((user.push || []).length >= 10) user.push = user.push.slice(-9);
     user.push = (user.push || []).filter(s => s.endpoint !== subscription.endpoint); user.push.push({ endpoint: subscription.endpoint, keys: subscription.keys }); auth.store.save(); return json(res, 200, { ok: true });
   }
   if (p === '/api/push/test' && m === 'POST') { if (!need()) return; await notifier.alert({ kind: 'test', title: 'Spectacle test', body: `Hi ${user.name}, notifications are working.` }); return json(res, 200, { ok: true, devices: (user.push || []).length }); }
@@ -187,7 +224,9 @@ async function handle(req, res) {
   if ((mm = /^\/api\/users\/([\w-]+)$/.exec(p))) {
     if (!need('admin')) return; const target = auth.user(mm[1]); if (!target) return json(res, 404, { error: 'No such user' });
     if (m === 'DELETE') { if (target.id === user.id) return json(res, 400, { error: 'Use "delete my account" for yourself' }); auth.deleteUser(target.id); for (const [ws, c] of clients) if (c.user.id === target.id) ws.close(); return json(res, 200, { ok: true }); }
-    if (m === 'PATCH') { const b = await bodyJSON(req); if (b.role === 'admin' || b.role === 'member') target.role = b.role; auth.store.save(); return json(res, 200, { ok: true }); }
+    if (m === 'PATCH') { const b = await bodyJSON(req);
+      if (b.role === 'member' && target.role === 'admin' && auth.d.users.filter(u => u.role === 'admin').length === 1) return json(res, 400, { error: 'There must always be at least one admin' });
+      if (b.role === 'admin' || b.role === 'member') target.role = b.role; auth.store.save(); return json(res, 200, { ok: true }); }
   }
 
   if (p === '/api/armed' && m === 'POST') { if (!need()) return; const b = await bodyJSON(req); settings.data.armed = !!b.armed; settings.save(); hub.broadcast({ type: 'armed', armed: settings.data.armed, by: user.name }); return json(res, 200, { armed: settings.data.armed }); }
@@ -208,7 +247,7 @@ async function handle(req, res) {
     if (sub === '' && m === 'PATCH') {
       if (!need('admin')) return; const b = await bodyJSON(req);
       if (typeof b.name === 'string') cam.name = b.name.slice(0, 40);
-      if (typeof b.url === 'string' && cam.type === 'rtsp') cam.url = b.url;
+      if (typeof b.url === 'string' && cam.type === 'rtsp') { if (!/^rtsps?:\/\/\S+$/i.test(b.url)) return json(res, 400, { error: 'Enter an rtsp:// address' }); cam.url = b.url; }
       for (const k of ['record', 'biome', 'enabled']) if (typeof b[k] === 'boolean') cam[k] = b[k];
       if (typeof b.audio === 'boolean') { if (b.audio && !b.ackAudio) return json(res, 400, { error: 'Confirm the audio-recording notice first' }); cam.audio = b.audio; }
       if (b.motion) cam.motion = { enabled: b.motion.enabled !== false, sensitivity: Math.max(1, Math.min(10, +b.motion.sensitivity || 5)), notify: b.motion.notify !== false };
@@ -241,6 +280,7 @@ async function handle(req, res) {
   }
   if (p === '/api/identify' && m === 'POST') {
     if (!need()) return; const buf = await readBody(req, 15e6);
+    if (!imageType(buf)) return json(res, 400, { error: 'Please choose a JPEG, PNG or WebP photo' });
     // Convert any phone photo (HEIC excluded) into a JPEG first.
     const jpeg = await toJpeg(buf); const r = await biome.identifyJpeg(jpeg);
     lastIdentify.set(user.id, { jpeg, r, cam: { id: 'upload', name: 'Photo upload' } }); return json(res, 200, { candidates: r.candidates });
@@ -261,13 +301,13 @@ async function handle(req, res) {
   if (p === '/api/system' && m === 'GET') {
     if (!need()) return; let disk = null;
     try { const s = fs.statfsSync(cfg.dataDir); disk = { freeGB: +(s.bavail * s.bsize / 1e9).toFixed(1), totalGB: +(s.blocks * s.bsize / 1e9).toFixed(1) }; } catch {}
-    return json(res, 200, { disk, retentionDays: cfg.recording.retentionDays, speciesDb: identifier.dbStats(), models: { insect: 1021, plant: 2101, bird: 964 }, uptimeSec: Math.round(process.uptime()), ntfy: !!cfg.ntfy.url, secure: isSecure(req) });
+    return json(res, 200, { disk, retentionDays: cfg.recording.retentionDays, speciesDb: identifier.dbStats(), models: { insect: 1021, plant: 2101, bird: 964 }, uptimeSec: Math.round(process.uptime()), ntfy: !!cfg.ntfy.url, secure: isSecure(req), encryption: vault.status() });
   }
 
   // ---- media ----
-  if ((mm = /^\/media\/rec\/([\w-]+)\/([\w.-]+\.mp4)$/.exec(p))) { if (!need()) return; const f = within(path.join(cfg.dataDir, 'recordings', mm[1]), mm[2]); return f ? serveFile(req, res, f) : json(res, 404, {}); }
-  if ((mm = /^\/media\/events\/([\w-]+)\/([\w.-]+\.jpg)$/.exec(p))) { if (!need()) return; const f = within(path.join(cfg.dataDir, 'events', mm[1]), mm[2]); return f ? serveFile(req, res, f) : json(res, 404, {}); }
-  if ((mm = /^\/media\/biome\/([\w-]+)\/([\w.-]+\.jpg)$/.exec(p))) { if (!need()) return; const f = biome.photoPath(mm[1], mm[2]); return f ? serveFile(req, res, f) : json(res, 404, {}); }
+  if ((mm = /^\/media\/rec\/([\w-]+)\/([\w.-]+\.mp4)$/.exec(p))) { if (!need()) return; const r = cams.recordingFile(mm[1], mm[2]); return r ? serveMedia(req, res, r.file, 'video/mp4') : json(res, 404, {}); }
+  if ((mm = /^\/media\/events\/([\w-]+)\/([\w.-]+\.jpg)$/.exec(p))) { if (!need()) return; const f = within(path.join(cfg.dataDir, 'events', mm[1]), mm[2]); return f ? serveMedia(req, res, f, 'image/jpeg') : json(res, 404, {}); }
+  if ((mm = /^\/media\/biome\/([\w-]+)\/([\w.-]+\.jpg)$/.exec(p))) { if (!need()) return; const f = biome.photoPath(mm[1], mm[2]); return f ? serveMedia(req, res, f, 'image/jpeg') : json(res, 404, {}); }
   if ((mm = /^\/media\/species\/([\w.-]+)$/.exec(p))) { if (!need()) return; const f = within(path.join(cfg.dataDir, 'species-db', 'images'), mm[1]); return f ? serveFile(req, res, f) : json(res, 404, {}); }
 
   // ---- static ----
@@ -291,7 +331,9 @@ const okShare = u => typeof u === 'string' && /^https:\/\/([a-z0-9-]+\.)*tailsca
 function toJpeg(buf) {
   const { spawn } = require('child_process');
   return new Promise((resolve, reject) => {
-    const p = spawn(cfg.ffmpeg, ['-v', 'error', '-i', 'pipe:0', '-frames:v', '1', '-vf', "scale='min(1600,iw)':-2", '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '3', 'pipe:1']);
+    const t = imageType(buf); if (!t) return reject(new Error('Please choose a JPEG, PNG or WebP photo'));
+    const demux = buf[0] === 0xff ? 'jpeg_pipe' : buf[0] === 0x89 ? 'png_pipe' : 'webp_pipe';
+    const p = spawn(cfg.ffmpeg, ['-v', 'error', '-protocol_whitelist', 'pipe', '-f', demux, '-i', 'pipe:0', '-frames:v', '1', '-vf', "scale='min(1600,iw)':-2", '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '3', 'pipe:1']);
     const out = []; p.stdout.on('data', c => out.push(c)); p.on('error', reject);
     p.on('close', code => code === 0 && out.length ? resolve(Buffer.concat(out)) : reject(new Error('Could not read that image (try a JPEG or PNG)')));
     p.stdin.on('error', () => {}); p.stdin.end(buf);
@@ -303,9 +345,15 @@ function onRequest(req, res) {
 }
 
 // ---------------- WebSockets ----------------
+/* Browsers always send Origin on WebSocket handshakes; it must be this server (blocks cross-site hijacking). */
+function sameOrigin(req) {
+  const o = req.headers.origin; if (!o) return true;            // the Android app's background connection has no Origin
+  try { return new URL(o).host === req.headers.host; } catch { return false; }
+}
 function onUpgrade(req, socket, head) {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/ws') {
+    if (!sameOrigin(req)) return socket.destroy();
     const user = auth.userFromToken(cookies(req).sp_session);
     if (!user) return socket.destroy();
     const ws = wsLib.upgrade(req, socket, head); if (!ws) return;
@@ -356,6 +404,8 @@ if (cfg.https.enabled) {
 }
 if (!servers) { console.error('No server enabled in config.json'); process.exit(1); }
 cams.startAll(); cams.sweep();
+setImmediate(() => { try { const n = biome.encryptOldPhotos(); if (n) console.log(`Encrypted ${n} older biome photos`); } catch (e) { console.warn('encrypting photos', e.message); } });
+console.log(`Encryption at rest: on (${vault.status().keySource === 'sealed' ? 'key sealed to this machine' : 'key in data/vault.key — run install.sh to seal it to this machine'})`);
 const st = identifier.dbStats();
 console.log(st.total ? `Offline species database: ${st.explained}/${st.total} species explained` : 'Offline species database not downloaded yet — run: npm run species-db');
 const shutdown = () => { for (const c of cams.list) cams.remove(c.id); auth.store.flush(); settings.flush(); events.flush(); biome.store.flush(); setTimeout(() => process.exit(0), 1500); };

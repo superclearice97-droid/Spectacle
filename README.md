@@ -34,7 +34,9 @@ cd spectacle
 
 This installs Node 22 + ffmpeg if needed, makes an HTTPS certificate, asks whether you want the optional species explanations, and installs a `spectacle` systemd service so it runs 24/7 and starts on boot. No `npm install` is needed — there are no dependencies.
 
-Then open `https://<server-ip>:8443` on your phone, accept the certificate warning, and create the admin account.
+Then open `https://<server-ip>:8443` on your phone, accept the certificate warning, and create the admin account using the **setup code** the installer printed (also in `data/SETUP-CODE.txt` until it's used).
+
+Everything Spectacle stores is encrypted on the server; see [SECURITY.md](SECURITY.md). To export a recording or photo outside the app, run `npm run decrypt -- <encrypted file> <output file>` on the server.
 
 Manual run: `npm start` · Tests: `npm test` · Logs: `journalctl -u spectacle -f`
 
@@ -127,6 +129,8 @@ Read and adjust before sharing with family:
 - `public/legal/privacy.html` — what's collected, who sees it, what leaves the home
 - `public/legal/terms.html` — terms and disclaimer (not a professional alarm; IDs can be wrong)
 - `public/legal/recording-laws.html` — where you can record, audio consent, GDPR notes
+- `docs/camera-notice-template.md` — signs and messages for visitors, carers and rentals
+- `LEGAL-REVIEW.md` — what's covered and what to check before sharing outside your family
 - `THIRD_PARTY_NOTICES.txt` — model (Apache-2.0), Wikipedia (CC BY-SA 4.0), GBIF (CC BY 4.0) and Commons attributions
 
 Built-in safeguards: every member accepts the terms and the presence notice at sign-up (and again if terms change); adding a camera requires a placement acknowledgement; audio is off and needs a separate confirmation; phone cameras never use the mic; recordings auto-expire; members can export or delete their account.
