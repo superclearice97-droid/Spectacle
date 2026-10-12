@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spectacle · Event Recorder</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui;background:#0e1311;color:#eef5ee}body{max-width:850px;margin:auto;padding:20px}a{color:#9de6c1}button,select{font:inherit;border:1px solid #4b6657;border-radius:9px;background:#203b2c;color:white;padding:10px;margin:4px}button:disabled{opacity:.4}video{width:100%;max-height:420px;background:#000;border-radius:12px}li{padding:12px;border-bottom:1px solid #405247}small{color:#b3c7bb}.status{padding:12px;border-radius:8px;background:#263b2c}label{display:inline-block;margin:8px}
+</style></head><body>
+<a href="/">← Spectacle</a><h1>Event Recorder</h1>
+<p>Manual, local recordings. Camera works with browser permission; screen capture requires a browser that supports display capture. Recording stops if this page closes.</p>
+<label>Source <select id="source"><option value="camera">Camera</option><option value="screen">Screen</option></select></label>
+<label>Quality <select id="quality"><option value="480">480p · balanced</option><option value="360">360p · smallest</option><option value="720">720p · clearer</option></select></label>
+<label><input id="audio" type="checkbox"> Include microphone audio</label>
+<label>Archive limit <select id="limit"><option value="250">250 MB</option><option value="500" selected>500 MB</option><option value="1000">1 GB</option><option value="2000">2 GB</option></select></label>
+<div><button id="start">● Start event</button><button id="stop" disabled>■ Stop and save</button></div>
+<p id="status" class="status" role="status">Ready. Recordings are saved in this browser's private local storage.</p>
+<video id="preview" autoplay playsinline muted></video>
+<h2>Saved events</h2><small>Download important clips before clearing browser data or uninstalling. Storage is browser-managed and may be evicted.</small><ul id="archive"></ul>
+<script src="/event-recorder.js"></script></body></html>
