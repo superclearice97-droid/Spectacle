@@ -168,7 +168,7 @@ class StandaloneActivity : ComponentActivity() {
         else startCamera()
     }
     @Deprecated("Deprecated in Java")
-    override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
+    override fun onRequestPermissionsResult(code: Int, permissions: Array<String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
         if (code == 51) {
             if (results.firstOrNull() == PackageManager.PERMISSION_GRANTED && resumed && currentPage == "Camera") startCamera()
