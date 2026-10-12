@@ -11,3 +11,4 @@ desktop/vendor/
 android/.gradle/
 android/**/build/
 __pycache__/
+android/.kotlin/
