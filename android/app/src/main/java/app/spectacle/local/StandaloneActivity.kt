@@ -158,6 +158,7 @@ class StandaloneActivity : ComponentActivity() {
                 content.addView(text("Watch its live camera, save videos and motion snapshots, and identify birds, insects and plants without an internet connection."))
                 content.addView(button("Open this phone's camera") { showPage("Camera") })
                 content.addView(button("View local recordings and events") { showPage("Archive") })
+                content.addView(button("Record a screen event") { startActivity(Intent(this, ScreenRecorderActivity::class.java)) })
                 content.addView(text("Camera monitoring runs while this screen is open. Leaving the camera screen or putting the app in the background stops capture and finalizes the current recording. Audio is disabled.", 16f))
                 loadEntries { entries -> say("${entries.size} saved items · 7-day retention · 500 MB archive limit") }
             }
