@@ -32,7 +32,10 @@ class LocalVault(context: Context) {
         }
     }
     // All instances share one ordered disk queue (also handles recording finalization after Activity destruction).
-    companion object { val io = Executors.newSingleThreadExecutor() }
+    companion object {
+        val io = Executors.newSingleThreadExecutor()
+        val activeRecordings = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    }
 
     private fun encrypt(output: OutputStream): CipherOutputStream {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }

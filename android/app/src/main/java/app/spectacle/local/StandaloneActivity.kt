@@ -83,7 +83,7 @@ class StandaloneActivity : ComponentActivity() {
         cacheDir.listFiles()?.filter { it.name.startsWith("spectacle-playback-") }?.forEach { it.delete() }
         LocalVault.io.execute {
             // Seal any interrupted recording left in private storage after a process kill.
-            filesDir.listFiles()?.filter { it.name.startsWith("local-recording-") && it.extension == "mp4" }?.forEach { file ->
+            filesDir.listFiles()?.filter { it.name.startsWith("local-recording-") && it.extension == "mp4" && it.path !in LocalVault.activeRecordings }?.forEach { file ->
                 runCatching { if (file.length() > 0) file.inputStream().use { vault.save(it, "video", "Recovered recording (may be incomplete)") } }
                     .onSuccess { file.delete() }
                     .onFailure { onMain { say("An interrupted recording could not be recovered: ${it.message}") } }
@@ -278,6 +278,7 @@ class StandaloneActivity : ComponentActivity() {
         if (finalizePending) { say("Finishing the last segment…"); return }
         if (filesDir.usableSpace < 150L * 1024 * 1024) { say("Not enough free storage. Free at least 150 MB to record."); return }
         val file = File(filesDir, "local-recording-${System.currentTimeMillis()}.mp4")
+        LocalVault.activeRecordings.add(file.path)
         try {
             finalizePending = true
             recording = video.output.prepareRecording(this, FileOutputOptions.Builder(file).setFileSizeLimit(40L * 1024 * 1024).build())
@@ -287,18 +288,24 @@ class StandaloneActivity : ComponentActivity() {
                         recording = null; finalizePending = false; recordButton?.text = "Start recording"
                         val usable = !event.hasError() || event.error == VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED || event.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE
                         LocalVault.io.execute {
+                            var archived = false
                             try {
-                                if (usable && file.length() > 0) file.inputStream().use { vault.save(it, "video", "Camera recording") }
-                                else onMain { say("Recording did not complete (error ${event.error}).") }
-                            } catch (e: Exception) { onMain { say("Recording could not be archived: ${e.message}") } }
-                            finally { file.delete() }
+                                if (usable && file.length() > 0) {
+                                    file.inputStream().use { vault.save(it, "video", "Camera recording") }
+                                    archived = true
+                                } else onMain { say("Recording did not complete (error ${event.error}).") }
+                            } catch (e: Exception) { onMain { say("Recording could not be archived: ${e.message}. It will be retried when you reopen the app.") } }
+                            finally {
+                                if (archived || !usable || file.length() == 0L) file.delete()
+                                LocalVault.activeRecordings.remove(file.path)
+                            }
                         }
                         if (monitor && resumed && settings.getBoolean("continuous", false) && usable && !isDestroyed) startRecording()
                     }
                 }
             settings.edit().putBoolean("continuous", true).apply()
             main.removeCallbacks(repeatSegment); main.postDelayed(repeatSegment, 60000)
-        } catch (e: Exception) { finalizePending = false; recording = null; file.delete(); say("Recording failed: ${e.message}") }
+        } catch (e: Exception) { finalizePending = false; recording = null; file.delete(); LocalVault.activeRecordings.remove(file.path); say("Recording failed: ${e.message}") }
     }
     private fun stopRecording(continuous: Boolean) {
         settings.edit().putBoolean("continuous", continuous).apply(); main.removeCallbacks(repeatSegment)

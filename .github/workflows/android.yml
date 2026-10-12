@@ -126,7 +126,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           script: |
             gradle -p android --no-daemon connectedDebugAndroidTest
-            adb uninstall app.spectacle.family
+            if adb shell pm path app.spectacle.family | grep -q '^package:'; then adb uninstall app.spectacle.family; fi
             python3 android/ci/standalone_test.py
             bash android/ci/start-server.sh
             python3 android/ci/emulator_test.py
