@@ -5,6 +5,7 @@ const path = require('path');
 // Desktop instances have their own persistent data and never bind to the LAN.
 function prepareRuntime(userData, ffmpeg) {
   fs.mkdirSync(userData, { recursive: true, mode: 0o700 });
+  fs.chmodSync(userData, 0o700);
   const configFile = path.join(userData, 'desktop-config.json');
   const config = {
     dataDir: path.join(userData, 'data'),

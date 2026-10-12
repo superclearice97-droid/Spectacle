@@ -28,14 +28,14 @@ def tap(label, timeout=30):
         sh('adb', 'shell', 'input', 'swipe', str(x), str(y1), str(x), str(y2), '300')
         attempts += 1
         time.sleep(1)
-    raise RuntimeError('Missing control: ' + label)
+    raise RuntimeError('Missing control: ' + label + '\nScreen: ' + ' | '.join(n.attrib.get('text','') for n in nodes()))
 
 def wait_text(label, timeout=30):
     end = time.time() + timeout
     while time.time() < end:
         if any(label.lower() in n.attrib.get('text', '').lower() for n in nodes()): return
         time.sleep(1)
-    raise RuntimeError('Missing text: ' + label)
+    raise RuntimeError('Missing text: ' + label + '\nScreen: ' + ' | '.join(n.attrib.get('text','') for n in nodes()))
 
 sh('adb', 'install', '-r', 'Spectacle.apk')
 sh('adb', 'shell', 'pm', 'clear', 'app.spectacle.family')
@@ -49,7 +49,7 @@ try:
     tap('Settings'); tap('Save motion snapshots'); tap('Automatic offline biome scans')
     tap('Camera')
     tap('Start camera'); tap('I agree')
-    wait_text('Live', 45)
+    wait_text('Live', 45); time.sleep(3)
     tap('Save a photo')
     wait_text('Saved:', 90)
     tap('Start recording'); wait_text('REC'); time.sleep(5); tap('Stop recording'); time.sleep(3)

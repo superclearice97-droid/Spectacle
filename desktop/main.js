@@ -18,7 +18,7 @@ else {
     app.quit();
   });
 }
-function log(data) { fs.appendFileSync(logFile, data.toString()); }
+function log(data) { fs.appendFileSync(logFile, data.toString(), { mode: 0o600 }); }
 function safeURL(url) { try { return new URL(url).origin === origin; } catch { return false; } }
 function makeWindow(options = {}) {
   const w = new BrowserWindow({ width: 1280, height: 900, minWidth: 420, minHeight: 600,

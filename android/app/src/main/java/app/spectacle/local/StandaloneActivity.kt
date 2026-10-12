@@ -107,10 +107,14 @@ class StandaloneActivity : ComponentActivity() {
         root.addView(text("Independent mode · stored on this device", 14f))
         val tabs = LinearLayout(this)
         listOf("Home", "Camera", "Archive", "Biome", "Settings").forEach { title ->
-            tabs.addView(button(title) { showPage(title) }, LinearLayout.LayoutParams(0, dp(54), 1f))
+            tabs.addView(button(title) { showPage(title) }.apply {
+                textSize = 13f
+                setPadding(dp(3), dp(6), dp(3), dp(6))
+                contentDescription = title
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
-        // Horizontal scrolling preserves readable controls with large accessibility fonts.
-        root.addView(HorizontalScrollView(this).apply { addView(tabs); isFillViewport = true })
+        // Keep every destination visible on narrow phones; labels can wrap for large fonts.
+        root.addView(tabs, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         message = text("", 15f).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
         root.addView(message)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
