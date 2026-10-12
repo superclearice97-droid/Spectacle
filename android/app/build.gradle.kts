@@ -13,8 +13,9 @@ android {
         applicationId = "app.spectacle.family"
         minSdk = 26          // Android 8.0+, so older phones can be cameras
         targetSdk = 34
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
+        versionName = System.getenv("VERSION_NAME") ?: "1.1.0"
     }
 
     signingConfigs {
@@ -41,10 +42,27 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
+    // Assets are copied at build time, keeping one canonical set of offline models in the repo.
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/offlineAssets"))
+    sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("../test-images"))
     buildFeatures { buildConfig = true }
     lint { abortOnError = false }
 }
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("androidx.camera:camera-video:1.4.2")
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
+
+val offlineAssets by tasks.registering(Copy::class) {
+    from(rootProject.file("../models")) { into("models") }
+    into(layout.buildDirectory.dir("generated/offlineAssets"))
+}
+tasks.named("preBuild") { dependsOn(offlineAssets) }

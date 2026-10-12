@@ -52,6 +52,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        if (prefs.standalone) {
+            startActivity(Intent(this, app.spectacle.local.StandaloneActivity::class.java)); finish(); return
+        }
         val server = prefs.server
         if (server == null) { startActivity(Intent(this, SetupActivity::class.java)); finish(); return }
 
@@ -253,6 +256,12 @@ class MainActivity : Activity() {
 
     /** Small set of app features the web pages can use (window.SpectacleAndroid). */
     inner class Bridge {
+        @JavascriptInterface fun openStandalone() = runOnUiThread {
+            AlertService.stop(this@MainActivity)
+            prefs.standalone = true
+            startActivity(Intent(this@MainActivity, app.spectacle.local.StandaloneActivity::class.java))
+            finish()
+        }
         @JavascriptInterface fun version(): String = BuildConfig.VERSION_NAME
         /** Called by the web app once the person is signed in (sign-up doesn't reload the page). */
         @JavascriptInterface fun signedIn() = runOnUiThread { CookieManager.getInstance().flush(); maybeOnboard(web.url ?: "") }

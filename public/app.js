@@ -289,7 +289,7 @@ async function pageSettings() {
   ${me.role === 'admin' ? camerasAdminHtml() : ''}
   <section class="card"><h2>Account</h2>
     <form id="pw" class="stack"><label class="f">Current password<input type="password" id="pw1" autocomplete="current-password"></label><label class="f">New password (10+ characters)<input type="password" id="pw2" autocomplete="new-password"></label><button class="btn">Change password</button></form>
-    ${IN_APP ? `<p class="small muted" style="margin-top:14px">Spectacle app ${esc(window.SpectacleAndroid.version())}</p><button class="btn ghost" id="appDisconnect">Disconnect this phone</button>` : ''}
+    ${IN_APP ? `<p class="small muted" style="margin-top:14px">Spectacle app ${esc(window.SpectacleAndroid.version())}</p>${window.SpectacleAndroid.openStandalone ? '<button class="btn" id="appStandalone" type="button">Use this phone independently</button>' : ''}<button class="btn ghost" id="appDisconnect">Disconnect this phone</button>` : ''}
     <div class="row" style="margin-top:14px"><a class="btn ghost" href="/api/me/export">Download my data</a><button class="btn ghost" id="logout">Sign out</button><button class="btn danger" id="delme">Delete my account</button></div>
   </section>
   <section class="card small"><h2>System</h2><div class="stack">
@@ -306,6 +306,7 @@ async function pageSettings() {
   $$('[data-mute]').forEach(c => c.onchange = () => savePrefs({ mutedCams: $$('[data-mute]').filter(x => x.checked).map(x => x.dataset.mute) }));
   if ($('#appAlerts')) $('#appAlerts').onchange = e => window.SpectacleAndroid.setBackgroundAlerts(e.target.checked);
   if ($('#appBattery')) $('#appBattery').onclick = () => window.SpectacleAndroid.openBattery();
+  if ($('#appStandalone')) $('#appStandalone').onclick = () => window.SpectacleAndroid.openStandalone();
   if ($('#appDisconnect')) $('#appDisconnect').onclick = () => window.SpectacleAndroid.disconnect();
   if ($('#push')) $('#push').onclick = async () => { try { if (!sub) { await enablePush(); toast('Notifications on'); pageSettings(); } else { await api('/api/push/test', { method: 'POST' }); } } catch (e) { toast('Could not enable', e.message); } };
   $('#pw').onsubmit = async e => { e.preventDefault(); try { await api('/api/me/password', { method: 'POST', body: { current: $('#pw1').value, next: $('#pw2').value } }); toast('Password changed'); e.target.reset(); } catch (err) { toast('Not changed', err.message); } };

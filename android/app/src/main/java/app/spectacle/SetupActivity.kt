@@ -95,6 +95,16 @@ class SetupActivity : Activity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         })
         col.addView(label("Welcome to Spectacle", 30f, color(R.color.ink), true).apply { isFocusable = true; accessibilityHeading() })
+        col.addView(label("Use this phone on its own, or optionally connect to a family's server.", 19f, color(R.color.dim)))
+        col.addView(bigButton("Use this phone independently", true).apply {
+            setOnClickListener {
+                AlertService.stop(this@SetupActivity)
+                Prefs(this@SetupActivity).standalone = true
+                startActivity(Intent(this@SetupActivity, app.spectacle.local.StandaloneActivity::class.java))
+                finish()
+            }
+        })
+        col.addView(label("Optional shared server", 22f, color(R.color.ink), true))
         col.addView(label("To connect, use the invite link you were sent by text or email.", 19f, color(R.color.dim)))
         col.addView(label("Easiest way: copy the whole message, then tap the button below.", 19f, color(R.color.dim)))
 
@@ -127,7 +137,7 @@ class SetupActivity : Activity() {
             setOnClickListener { TailscaleHelp.open(this@SetupActivity) }
         }
         col.addView(tsButton)
-        col.addView(label("No invite? Ask the person who set up your family's cameras to send you one.", 16f, color(R.color.dim)).apply {
+        col.addView(label("No invite needed for independent mode. Shared-server mode uses a separate archive.", 16f, color(R.color.dim)).apply {
             (layoutParams as LinearLayout.LayoutParams).topMargin = dp(36)
         })
         return ScrollView(this).apply { addView(col); isFillViewport = true }
@@ -176,6 +186,7 @@ class SetupActivity : Activity() {
                     return@post
                 }
                 val prefs = Prefs(this)
+                prefs.standalone = false
                 prefs.server = origin
                 prefs.pin = fp
                 say("Connected!")

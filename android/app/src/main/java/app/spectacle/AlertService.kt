@@ -38,7 +38,8 @@ class AlertService : Service() {
         private const val CH_STATUS = "status"
         private const val STATUS_ID = 1
         fun start(ctx: Context) {
-            if (Prefs(ctx).server == null) return
+            val prefs = Prefs(ctx)
+            if (prefs.standalone || prefs.server == null) return
             try { ctx.startForegroundService(Intent(ctx, AlertService::class.java)) } catch (_: Exception) {}
         }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, AlertService::class.java)) }
@@ -76,6 +77,7 @@ class AlertService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Prefs(this).standalone) { stopSelf(); return START_NOT_STICKY }
         // Started again (e.g. right after signing in): connect now instead of waiting for the next retry.
         main.post { if (socket == null) { backoff = 2000; connect() } }
         return START_STICKY
@@ -91,6 +93,7 @@ class AlertService : Service() {
     private fun connect() {
         if (stopped || socket != null) return
         val prefs = Prefs(this)
+        if (prefs.standalone) return stopSelf()
         val server = prefs.server ?: return stopSelf()
         val cookie = CookieManager.getInstance().getCookie(server)
         if (cookie.isNullOrEmpty()) { retry(); return } // not signed in yet
