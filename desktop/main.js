@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, shell, session, utilityProcess, Notification } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, session, utilityProcess, Notification, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
@@ -60,6 +60,20 @@ async function start() {
   });
   session.defaultSession.setPermissionCheckHandler((wc, permission, requestOrigin, details) =>
     trusted(wc, requestOrigin) && (permission === 'media' && details.mediaType === 'video' || ['notifications', 'fullscreen'].includes(permission)));
+  // Explicitly choose a screen source only when the user invokes display capture.
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const selected = await dialog.showMessageBox(win, {
+        type: 'question', title: 'Screen recording',
+        message: 'Share your primary screen with Spectacle?',
+        detail: 'Only start recording if you have permission to capture the content on screen. Recording stays local.',
+        buttons: ['Cancel', 'Share screen'], defaultId: 0, cancelId: 0,
+      });
+      if (selected.response !== 1 || !sources.length) return callback({});
+      callback({ video: sources.find(s => s.id.startsWith('screen:')) || sources[0] });
+    } catch { callback({}); }
+  });
   // Forward local motion/species alerts to Linux notifications, including while minimized.
   const connectAlerts = async () => {
     alertSocket?.close(); alertSocket = null;
@@ -79,6 +93,7 @@ async function start() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Spectacle', submenu: [
       { label: 'Use this computer’s camera', click: useWebcam },
+      { label: 'Record an event (camera or screen)', click: () => { const recorderWindow = makeWindow({ width: 900, height: 820 }); recorderWindow.loadURL(origin + '/event-recorder.html'); } },
       { label: 'Show setup code', click: () => dialog.showMessageBox(win, { message: readSetupCode(userData) || 'Already set up. Sign in with your local account.' }) },
       { label: 'Open local data folder', click: () => shell.openPath(path.join(userData, 'data')) },
       { type: 'separator' }, { role: 'quit' },
