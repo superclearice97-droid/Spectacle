@@ -12,16 +12,20 @@ const { jpegSize } = require('../species');
 
 const SIZES = { s: 'D-FINE-S', l: 'D-FINE-L', x: 'D-FINE-X' };
 
+// The desktop app ships ONNX Runtime inside the app and keeps models in the user's data folder
+// (cfg.smart.modelDir), so they can be downloaded from Settings with one tap.
 function locate(cfg) {
   const dir = path.join(cfg.root, 'addons');
+  const modelDir = (cfg.smart && cfg.smart.modelDir) || path.join(dir, 'models');
   let meta = {};
-  try { meta = JSON.parse(fs.readFileSync(path.join(dir, 'smart.json'), 'utf8')); } catch {}
+  for (const f of [path.join(modelDir, 'smart.json'), path.join(dir, 'smart.json')]) { try { meta = JSON.parse(fs.readFileSync(f, 'utf8')); break; } catch {} }
+  const inApp = !!(cfg.smart && cfg.smart.modelDir);
   const size = (cfg.smart && cfg.smart.size) || meta.size || 'l';
-  const model = path.join(dir, 'models', `dfine-${size}.onnx`);
+  const model = path.join(modelDir, `dfine-${size}.onnx`);
   const ortPath = path.join(dir, 'node_modules', 'onnxruntime-node');
-  if (!fs.existsSync(ortPath)) return { reason: 'not installed', hint: 'Run: npm run smart-detection' };
-  if (!fs.existsSync(model)) return { reason: `model dfine-${size}.onnx not downloaded`, hint: `Run: npm run smart-detection -- --size ${size}` };
-  return { size, model, ortPath };
+  if (!fs.existsSync(ortPath)) return { reason: 'not installed', hint: 'Run: npm run smart-detection', canInstall: false };
+  if (!fs.existsSync(model)) return { reason: 'model not downloaded', hint: inApp ? 'Turn it on in Settings' : `Run: npm run smart-detection -- --size ${size}`, canInstall: inApp, modelDir };
+  return { size, model, ortPath, canInstall: inApp, modelDir };
 }
 
 /** JPEG -> 640x640 RGB (plain resize, as the model expects). */
@@ -55,7 +59,8 @@ class Detector {
     this.worker.unref();
   }
   get available() { return this.ready && !this.error; }
-  status() { return { available: this.available, model: this.info.size ? SIZES[this.info.size] : null, size: this.info.size || null, avgMs: Math.round(this.avgMs) || null, error: this.error, hint: this.info.hint || null }; }
+  status() { return { available: this.available, model: this.info.size ? SIZES[this.info.size] : null, size: this.info.size || null, avgMs: Math.round(this.avgMs) || null, error: this.error, hint: this.info.hint || null, canInstall: !!this.info.canInstall }; }
+  stop() { try { this.worker && this.worker.terminate(); } catch {} }
 
   async run(jpeg, minScore) {
     const size = jpegSize(jpeg); if (!size) throw new Error('Not a JPEG');

@@ -56,10 +56,11 @@ async function start() {
   await ready;
   const trusted = (wc, requestOrigin) => safeURL(requestOrigin) && safeURL(wc?.getURL());
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-    callback(trusted(wc, details.requestingUrl) && (permission === 'media' && details.mediaTypes?.every(t => t === 'video') || ['notifications', 'fullscreen'].includes(permission)));
+    // Camera for "use this computer's camera"; microphone only for two-way talk calls.
+    callback(trusted(wc, details.requestingUrl) && (permission === 'media' && details.mediaTypes?.every(t => t === 'video' || t === 'audio') || ['notifications', 'fullscreen'].includes(permission)));
   });
   session.defaultSession.setPermissionCheckHandler((wc, permission, requestOrigin, details) =>
-    trusted(wc, requestOrigin) && (permission === 'media' && details.mediaType === 'video' || ['notifications', 'fullscreen'].includes(permission)));
+    trusted(wc, requestOrigin) && (permission === 'media' && ['video', 'audio'].includes(details.mediaType) || ['notifications', 'fullscreen'].includes(permission)));
   // Explicitly choose a screen source only when the user invokes display capture.
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
     try {
@@ -116,7 +117,7 @@ async function useWebcam() {
     if (cameraWindow && !cameraWindow.isDestroyed()) return cameraWindow.focus();
     const { user } = await api('/api/state'); if (user?.role !== 'admin') throw new Error('Create or sign in to your local admin account first.');
     const ack = await dialog.showMessageBox(win, { type: 'question', buttons: ['Cancel', 'I agree — open camera'], defaultId: 0,
-      message: 'Use this computer’s webcam?', detail: 'Only record places you are allowed to record, and tell household members and guests. Audio is disabled. Keep the camera window open to continue recording.' });
+      message: 'Use this computer’s webcam?', detail: 'Only record places you are allowed to record, and tell household members and guests. Audio is never recorded; the microphone is only used during two-way talk calls if you turn them on. Keep the camera window open to continue recording.' });
     if (ack.response !== 1) return;
     const { cameras } = await api('/api/cameras');
     const existing = cameras.find(c => c.name === 'This computer' && c.type === 'browser');

@@ -18,6 +18,7 @@ const { Detector } = require('./lib/smart/detector');
 const { SmartWatch, camSmart } = require('./lib/smart/watch');
 const { cleanZones } = require('./lib/smart/tracker');
 const { GROUP_NAMES, groupOf, nice } = require('./lib/smart/coco');
+const { TalkHub } = require('./lib/talk');
 
 const cfg = loadConfig();
 const PUBLIC = path.join(cfg.root, 'public');
@@ -26,7 +27,9 @@ const settings = new Store(cfg.dataDir, 'settings', { armed: true, cameras: [] }
 const events = new Store(cfg.dataDir, 'events', { list: [] });
 const cams = new CameraManager(cfg, settings);
 const identifier = new Identifier(cfg);
-const detector = new Detector(cfg);
+let detector = new Detector(cfg);
+const smartModels = require('./lib/smart/models');
+let smartInstall = null; // { size, pct } while the desktop app downloads a model
 const smart = new SmartWatch(cfg, cams, detector);
 
 const SECRETS = path.join(cfg.dataDir, 'secrets.json'), CODE_FILE = path.join(cfg.dataDir, 'SETUP-CODE.txt');
@@ -59,6 +62,29 @@ const hub = {
   },
 };
 const notifier = new Notifier(cfg, auth, hub);
+// ---------------- two-way talk (live only, never recorded) ----------------
+const talk = new TalkHub({
+  cams,
+  onState: st => hub.broadcast({ type: 'talk-state', ...st }),
+  // Only a log line is kept: who joined and for how long. No audio.
+  onEnd: e => {
+    const ev = { id: Date.now().toString(36) + crypto.randomBytes(3).toString('hex'), camId: e.camId, camName: e.camName, ts: new Date(e.startedAt).toISOString(), kind: 'talk', people: e.people, spoke: e.spoke, durationSec: e.durationSec, notified: false };
+    events.data.list.unshift(ev); events.data.list = events.data.list.slice(0, 3000); events.save(); hub.broadcast({ type: 'event', event: ev });
+  },
+});
+const lastRing = new Map();
+function doorbell(cam) {
+  const now = Date.now();
+  if (!cam.talk || !cam.talk.doorbell || now - (lastRing.get(cam.id) || 0) < 20000) return false;
+  lastRing.set(cam.id, now);
+  const id = now.toString(36) + crypto.randomBytes(3).toString('hex'), pipe = cams.pipe(cam.id);
+  let snapshot = null; if (pipe && pipe.latest) { snapshot = id + '.jpg'; vault.writeFile(path.join(cfg.dataDir, 'events', cam.id, snapshot), pipe.latest); }
+  const ev = { id, camId: cam.id, camName: cam.name, ts: new Date(now).toISOString(), kind: 'ring', snapshot, notified: true };
+  events.data.list.unshift(ev); events.data.list = events.data.list.slice(0, 3000); events.save(); hub.broadcast({ type: 'event', event: ev });
+  // Doorbells always alert (even when "Home"), like a real doorbell.
+  notifier.alert({ kind: 'ring', title: `Someone is at ${cam.name}`, body: 'They pressed the doorbell. Tap to see and talk to them.', camId: cam.id, url: '/#talk/' + cam.id, tag: 'ring-' + cam.id });
+  return true;
+}
 const biome = new Biome(cfg, identifier, ev => {
   hub.broadcast({ type: 'sighting', ...ev });
   if (ev.isNew) notifier.alert({ kind: 'sighting', title: `New in the yard: ${ev.species.common || ev.species.scientific}`, body: `Spotted by ${ev.cam} (${Math.round(ev.conf * 100)}% sure). Tap to see its folder.`, url: '/#biome/' + ev.species.id, tag: 'biome-' + ev.species.id });
@@ -159,7 +185,7 @@ function secHeaders(res) {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
 }
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').map(s => s.trim().split('=')).filter(p => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
@@ -197,7 +223,7 @@ const imageType = b => b.length > 12 && ((b[0] === 0xff && b[1] === 0xd8) || b.s
 const PUSH_HOSTS = /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w-]+\.push\.services\.mozilla\.com|web\.push\.apple\.com|[\w.-]+\.notify\.windows\.com|[\w.-]+\.push\.apple\.com)\//;
 const okPush = u => typeof u === 'string' && u.length < 2000 && PUSH_HOSTS.test(u);
 const within = (base, p) => { const r = path.resolve(base, p); return r.startsWith(path.resolve(base) + path.sep) ? r : null; };
-const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
+const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), talk: { enabled: !!(c.talk && c.talk.enabled), doorbell: !!(c.talk && c.talk.doorbell), supported: c.type === 'browser', session: talk.state(c.id) }, enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
 
 // ---------------- routes ----------------
 async function handle(req, res) {
@@ -297,6 +323,13 @@ async function handle(req, res) {
       if (typeof b.url === 'string' && cam.type === 'rtsp') { if (!/^rtsps?:\/\/\S+$/i.test(b.url)) return json(res, 400, { error: 'Enter an rtsp:// address' }); cam.url = b.url; }
       for (const k of ['record', 'biome', 'enabled']) if (typeof b[k] === 'boolean') cam[k] = b[k];
       if (typeof b.audio === 'boolean') { if (b.audio && !b.ackAudio) return json(res, 400, { error: 'Confirm the audio-recording notice first' }); cam.audio = b.audio; }
+      if (b.talk && typeof b.talk === 'object') {
+        const want = { enabled: b.talk.enabled === true, doorbell: b.talk.doorbell === true };
+        if ((want.enabled || want.doorbell) && cam.type !== 'browser') return json(res, 400, { error: 'Two-way talk and the doorbell button work with phone and webcam cameras only' });
+        if (want.enabled && !(cam.talk && cam.talk.enabled) && !b.ackTalk) return json(res, 400, { error: 'Confirm the two-way talk notice first' });
+        if (!want.enabled && cam.talk && cam.talk.enabled) talk.endAllFor(cam.id);
+        cam.talk = { ...want, ack: want.enabled ? (cam.talk && cam.talk.ack) || { by: user.id, at: new Date().toISOString() } : undefined };
+      }
       if (b.motion) cam.motion = { enabled: b.motion.enabled !== false, sensitivity: Math.max(1, Math.min(10, +b.motion.sensitivity || 5)), notify: b.motion.notify !== false };
       if (b.smart && typeof b.smart === 'object') {
         const cur = camSmart(cam), KINDS = ['person', 'vehicle', 'animal', 'package'];
@@ -357,7 +390,24 @@ async function handle(req, res) {
     if (!['confirmed', 'rejected', 'unreviewed'].includes(b.status)) return json(res, 400, { error: 'Bad status' });
     const sp = biome.setStatus(mm[1], b.status); if (!sp) return json(res, 404, { error: 'Not found' }); hub.broadcast({ type: 'biome' }); return json(res, 200, { species: sp });
   }
-  if (p === '/api/smart' && m === 'GET') { if (!need()) return; return json(res, 200, detector.status()); }
+  if (p === '/api/smart' && m === 'GET') { if (!need()) return; return json(res, 200, { ...detector.status(), installing: smartInstall, sizes: smartModels.SIZES_MB, labels: smartModels.LABELS }); }
+  // Desktop app only: download and switch on a detector model from Settings (server installs use npm run smart-detection).
+  if (p === '/api/smart/install' && m === 'POST') {
+    if (!need('admin')) return; const b = await bodyJSON(req);
+    if (!cfg.smart.modelDir || !fs.existsSync(path.join(cfg.root, 'addons', 'node_modules', 'onnxruntime-node'))) return json(res, 400, { error: 'On a server install, run: npm run smart-detection' });
+    const size = ['s', 'l', 'x'].includes(b.size) ? b.size : 'l';
+    if (smartInstall) return json(res, 409, { error: 'Already downloading' });
+    smartInstall = { size, pct: 0 };
+    hub.broadcast({ type: 'smart-install', ...smartInstall });
+    smartModels.download(size, cfg.smart.modelDir, p => { smartInstall.pct = Math.round(p * 100); hub.broadcast({ type: 'smart-install', ...smartInstall }); })
+      .then(() => {
+        fs.writeFileSync(path.join(cfg.smart.modelDir, 'smart.json'), JSON.stringify({ size, sha256: smartModels.PINNED[size], installed: new Date().toISOString() }, null, 2));
+        cfg.smart.size = size; detector.stop(); detector = new Detector(cfg); smart.det = detector;
+        smartInstall = null; hub.broadcast({ type: 'smart-install', done: true, size });
+      })
+      .catch(e => { smartInstall = null; hub.broadcast({ type: 'smart-install', error: e.message }); });
+    return json(res, 202, { started: true, size });
+  }
   if (p === '/api/system' && m === 'GET') {
     if (!need()) return; let disk = null;
     try { const s = fs.statfsSync(cfg.dataDir); disk = { freeGB: +(s.bavail * s.bsize / 1e9).toFixed(1), totalGB: +(s.blocks * s.bsize / 1e9).toFixed(1) }; } catch {}
@@ -429,6 +479,24 @@ function onUpgrade(req, socket, head) {
     ws.on('close', () => { const bg = clients.get(ws)?.bg; clients.delete(ws); if (!bg) hub.presence(); updateWatched(); });
     return;
   }
+  if (url.pathname === '/ws/talk') {
+    if (!sameOrigin(req)) return socket.destroy();
+    const user = auth.userFromToken(cookies(req).sp_session);
+    if (!user) return socket.destroy();
+    const ws = wsLib.upgrade(req, socket, head); if (!ws) return;
+    talk.addListener(ws, user, cams.get(String(url.searchParams.get('cam') || '')));
+    devices.add(ws); ws.on('close', () => devices.delete(ws));
+    return;
+  }
+  if (url.pathname === '/ws/cam-audio') {
+    const camId = auth.deviceCam(url.searchParams.get('token'));
+    const cam = camId && cams.get(camId);
+    if (!cam || !cam.talk || !cam.talk.enabled) return socket.destroy();
+    const ws = wsLib.upgrade(req, socket, head); if (!ws) return;
+    talk.attachCamera(ws, cam);
+    devices.add(ws); ws.on('close', () => devices.delete(ws));
+    return;
+  }
   if (url.pathname === '/ws/ingest') {
     const camId = auth.deviceCam(url.searchParams.get('token'));
     const cam = camId && cams.get(camId);
@@ -438,13 +506,17 @@ function onUpgrade(req, socket, head) {
     if (pipe.device) pipe.device.close(4000); // newest device wins
     pipe.stop(); pipe.device = ws;
     let started = false;
-    ws.send({ type: 'config', name: cam.name, fps: 15 });
+    ws.send({ type: 'config', name: cam.name, fps: 15, talk: !!(cam.talk && cam.talk.enabled), doorbell: !!(cam.talk && cam.talk.doorbell) });
     ws.on('message', (data, binary) => {
-      if (!binary) return;
+      if (!binary) {
+        let m; try { m = JSON.parse(data); } catch { return; }
+        if (m.type === 'ring') ws.send({ type: 'ring-ok', sent: doorbell(cam) });
+        return;
+      }
       if (!started) { started = true; pipe.start(); }
       pipe.feed(data);
     });
-    ws.on('close', () => { if (pipe.device === ws) { pipe.device = null; pipe.stop(); } devices.delete(ws); });
+    ws.on('close', () => { if (pipe.device === ws) { pipe.device = null; pipe.stop(); talk.end(cam.id, 'camera disconnected'); } devices.delete(ws); });
     devices.add(ws);
     return;
   }

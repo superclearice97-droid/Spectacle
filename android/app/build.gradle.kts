@@ -15,7 +15,7 @@ android {
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "1.1.0"
+        versionName = System.getenv("VERSION_NAME") ?: "1.2.0"
     }
 
     signingConfigs {

@@ -28,6 +28,13 @@ If your distribution cannot mount AppImages, use the tarball or run the AppImage
 
 The local runtime listens only on `127.0.0.1` on an automatically selected port. It stops when the app exits. Minimized windows keep running; closing the last window exits. Data lives in Electron's per-user Spectacle data directory, normally `~/.config/Spectacle/data`. Use **Open local data folder** to locate it. Back up this directory, including its vault key, if you need to migrate it. Completed recordings and photos use the existing server's encryption; in-progress segments can temporarily be plaintext in RAM or private staging storage.
 
+### Smart detection and two-way talk on the desktop
+
+Open **Settings** and tap **Turn on smart detection**. The detector engine is already inside the app, so this downloads the
+model once (about 124 MB; there's a smaller 41 MB version for older computers), checks it, and switches it on. Nothing is sent
+anywhere while it runs. Two-way talk works with **Use this computer's camera**: turn it on for that camera in Settings, and
+family can talk through the computer's speakers and microphone.
+
 ### Develop/build Linux
 
 Node 24 and FFmpeg are needed for development only:

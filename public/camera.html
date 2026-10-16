@@ -17,7 +17,16 @@
   .dim { position: fixed; inset: 0; background: #000; display: none; color: #333; place-items: center; font-size: .8rem; }
   .dim.on { display: grid; }
   @keyframes blink { 50% { opacity: .2; } }
+  /* Two-way talk notice: always visible to whoever is in front of the camera while a session is on. */
+  .talkbar { position: fixed; left: 12px; right: 12px; top: calc(64px + env(safe-area-inset-top)); z-index: 5; background: #0e1311f0; border: 2px solid var(--lime); border-radius: 18px; padding: 14px 16px; display: flex; gap: 14px; align-items: center; color: var(--ink); font-size: 1.15rem; }
+  .talkbar .mic { flex: none; width: 46px; height: 46px; border-radius: 50%; background: var(--alert); display: grid; place-items: center; font-size: 1.4rem; animation: blink 1.6s infinite; }
+  .talkbar small { display: block; color: var(--dim); font-size: .9rem; }
+  .ring { position: fixed; z-index: 6; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%); min-width: 230px; min-height: 84px; border-radius: 999px; border: 0; background: var(--lime); color: #10140f; font: 800 1.6rem var(--sans); box-shadow: 0 10px 40px -8px #000; cursor: pointer; }
+  .ring:active { transform: translateX(-50%) scale(.97); }
+  .ring[disabled] { opacity: .7; }
+  .dim .ring { bottom: 30%; }
 </style>
+<script src="/talk.js" defer></script>
 <script src="/camera.js" defer></script>
 </head>
 <body>
@@ -30,7 +39,7 @@
     <ul class="small muted" style="margin:0;padding-left:18px">
       <li>Point it only at places you're allowed to record. Never at bathrooms, other people's bedrooms, or into neighbours' homes or yards.</li>
       <li>Tell the people who live with you (and guests) that this camera records. In many places a visible "camera in use" sign is required or wise.</li>
-      <li>Only video is sent. The microphone is never used.</li>
+      <li>Only video is sent and recorded. If two-way talk is on for this camera, the microphone is used only during calls, which always start with a chime and a notice on this screen. Calls are never recorded.</li>
       <li>Keep this page open and the phone plugged in. Browsers stop the camera if you switch apps or lock the screen with this page hidden.</li>
     </ul>
     <label class="check"><input type="checkbox" id="ack"> I understand and have permission to record here.</label>
@@ -44,6 +53,8 @@
   <video id="v" autoplay muted playsinline></video>
   <div class="hud"><span class="pill rec" id="state">REC</span><span class="mono" id="name"></span></div>
   <div class="bottom"><button class="btn" id="dimBtn">Dim screen</button><button class="btn" id="flip">Flip</button><button class="btn danger" id="stop">Stop</button></div>
+  <div class="talkbar" id="talkbar" role="status" aria-live="assertive" hidden><span class="mic" aria-hidden="true">🎤</span><div><b id="talkWho">Someone from the house is talking</b><small>You can talk back. The microphone is on during this call only, and it isn't recorded.</small></div></div>
+  <button class="ring" id="ring" hidden aria-label="Ring the doorbell">🔔 Ring</button>
   <div class="dim" id="dim">Recording · tap to wake</div>
 </div>
 </body>

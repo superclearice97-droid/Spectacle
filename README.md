@@ -28,6 +28,7 @@ Spectacle turns a Linux box and your cameras (IP cams or old phones) into a 24/7
 - **Cameras, 24/7** — IP cameras (RTSP/ONVIF: Reolink, Amcrest, Tapo, Hikvision…) and any old phone or webcam (opened in a browser). Continuous recording in 10-minute MP4 files, auto-deleted after 14 days or when disk gets low.
 - **Multiple people at once** — everyone signed in sees who else is online (avatars in the top bar) and which camera they're watching (avatars on each camera tile). Quick notes to everyone online from the Family tab.
 - **Motion alerts to the whole family** — phone notifications (Web Push), live in-app alerts, and optional [ntfy](https://ntfy.sh). Snapshot + jump to the moment in the recording. "Armed / Home" switch pauses alerts for everyone; each person can mute cameras for themselves.
+- **Two-way talk & doorbell**: talk to whoever is at a camera, like a Nest doorbell. Phone and webcam cameras can show a big **Ring** button; pressing it alerts the family (even when set to Home), and the alert opens straight to **Answer**. Calls are live through your own server and **never recorded**. The camera always plays a chime and shows who's talking. One person talks at a time; others can listen in.
 - **Smart detection (optional)**: alerts say *"Person in Driveway"* or *"Car at Front door"* instead of just "Motion". You can draw zones on each camera, set "only alert if they stay 30 seconds", and see live labels while you watch. Parked cars and other things that never move don't trigger alerts. About as accurate as YOLO26x, using the Apache-2.0 [D-FINE](https://github.com/Peterande/D-FINE) detector, entirely on your server.
 - **Biome log** — about once a minute (only when the scene changes) and whenever something small moves, each camera's view is checked against **4,086 species** (1,021 insects, 2,101 plants, 964 birds). Each find gets a folder `data/biome/<Group>/<Order>/<Family>/<Species (Common name)>/` with `info.md` (what it is, classification, where/when seen) and `photos/`. The same folders are browsable in the app, where you confirm or reject each ID. You can also identify any photo you take.
 - **Fully offline identification** — the models run on your server with a built-in engine; photos never leave home. Plain-language explanations are an **optional** one-time download (`npm run species-db`) of Wikipedia summaries + GBIF taxonomy (+ optional reference photos), stored in `data/species-db/`.
@@ -79,7 +80,7 @@ fingerprint. Away from home, use Tailscale. Building and signing releases: [docs
 ## Adding cameras (Settings → Cameras, admin only)
 
 - **IP camera:** enter its RTSP address, e.g. `rtsp://user:pass@192.168.1.20:554/h264Preview_01_main`. H.264 cameras play everywhere; H.265 recordings may not play in every browser (choose H.264 in the camera's settings if you can).
-- **Old phone / webcam:** add it, tap **Get pairing link** and send the message to the camera phone. On it, install the app, tap **Paste my invite**, tick the notice and press Start (or open the link in Chrome). Keep the page open, screen on and charger plugged in (browsers stop the camera in the background). "Dim screen" blacks out the display. The microphone is never used.
+- **Old phone / webcam:** add it, tap **Get pairing link** and send the message to the camera phone. On it, install the app, tap **Paste my invite**, tick the notice and press Start (or open the link in Chrome). Keep the page open, screen on and charger plugged in (browsers stop the camera in the background). "Dim screen" blacks out the display. The microphone is never used for recording; with two-way talk on, it's used only during announced calls.
 
 ## Remote access (Tailscale)
 
@@ -108,9 +109,23 @@ Don't expose Spectacle to the internet with router port forwarding.
 
 Restart after editing: `sudo systemctl restart spectacle`.
 
+## Two-way talk and the doorbell
+
+Turn it on per camera in **Settings → Cameras → Two-way talk** (you'll confirm a short notice), plus **Doorbell button** if the
+camera is at a door. It works with phone and webcam cameras (the browser camera page, the Android app's camera mode and
+the desktop app's webcam). IP cameras can't be talked through yet, because each brand uses its own audio protocol.
+
+- **Answering:** tap the doorbell alert, then **Answer**. You hear them straight away. Tap **Start talking** when you want them to hear you,
+  and **Hang up** when done. Anyone else in the family can **Join the call** to listen.
+- **On the camera:** a chime plays and a banner says "Jordan is talking to you" for the whole call, so nobody is listened to without knowing.
+  Echo cancellation lets a phone on loudspeaker work as a door intercom.
+- **Privacy:** audio goes phone → your Spectacle server → camera over the same encrypted connection as video. Nothing is recorded; only
+  "who called, when, how long" is kept in the alert log. Calls end automatically after 15 minutes.
+
 ## Smart detection: people, vehicles, animals and zones
 
-Optional, for the Linux server install. `./install.sh` offers it, or run `npm run smart-detection` any time (then `sudo systemctl restart spectacle`).
+On the **desktop app**, open Settings and tap **Turn on smart detection** (it's built in, so the model just downloads once).
+On a **Linux server install**, `./install.sh` offers it, or run `npm run smart-detection` any time (then `sudo systemctl restart spectacle`).
 It installs [ONNX Runtime](https://onnxruntime.ai) (MIT) and one D-FINE model into `addons/`, and checks the download
 against a pinned SHA-256. Spectacle itself stays MIT-licensed with no dependencies, and no camera frames ever leave the machine.
 

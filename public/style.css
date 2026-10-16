@@ -182,3 +182,10 @@ textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 
 .bx span { position: absolute; left: -2px; top: -1.7em; background: var(--c); color: #10140f; font: 700 .78rem/1.5 var(--sans); padding: 0 6px; border-radius: 5px; white-space: nowrap; }
 #zf { cursor: crosshair; touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) { .bx { transition: none; } }
+
+/* two-way talk */
+.btn.big { min-height: 64px; font-size: 1.2rem; width: 100%; border-radius: 16px; }
+.talkbox { margin: 12px 0; border-color: color-mix(in srgb, var(--lime) 40%, var(--line)); }
+.talk-ring { font-size: 1.2rem; font-weight: 700; color: var(--amber); margin: 0; }
+.meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--lime); transition: width .1s linear; }

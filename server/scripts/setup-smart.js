@@ -11,20 +11,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DIR = path.join(ROOT, 'addons');
-const REPO = 'superclearice97-droid/spectacle';
-const TAG = 'detector-models-v1';
 const ORT_VERSION = '1.24.3';
-// Pinned checksums of the published models (from the detector-models-v1 release built by GitHub Actions).
-const PINNED = {
-  's': '9ceede01469b821a3807fb8e25ee5283a0781c6b9b2d0c7795a76408610b9b6b',
-  'l': 'bceee0b6ca3f5b67248f1471cc156f0ed380c7321005514f12276178e1d98a38',
-  'x': '2fe00f6bcca85241610d2ca491cffc6b316c72bdfbd1e2fc6d725b79a2fdf932',
-};
+const models = require('../lib/smart/models');
 const args = process.argv.slice(2);
 const say = s => console.log('==> ' + s);
 
@@ -65,24 +57,14 @@ async function get(url) {
     });
   } else say(`ONNX Runtime ${ORT_VERSION} already installed`);
 
-  // 2) model
-  const base = `https://github.com/${REPO}/releases/download/${TAG}`;
+  // 2) model (checked against the SHA-256 built into this version of Spectacle)
   const file = `dfine-${size}.onnx`, dest = path.join(DIR, 'models', file);
-  say(`Checking the ${ {s: 'small', l: 'recommended', x: 'most accurate'}[size] } detector model (${file})`);
-  const sums = (await get(`${base}/SHA256SUMS`)).toString();
-  const want = (sums.split('\n').find(l => l.trim().endsWith(file)) || '').split(/\s+/)[0];
-  if (!/^[0-9a-f]{64}$/.test(want)) throw new Error('Model checksum list is missing this file');
-  if (want !== PINNED[size]) throw new Error('The published model doesn\'t match the checksum built into this version of Spectacle, so it was not installed.');
-  const hash = f => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
-  if (!fs.existsSync(dest) || hash(dest) !== want) {
-    say(`Downloading ${file} (once; it never sends anything back)`);
-    const buf = await get(`${base}/${file}`);
-    const got = crypto.createHash('sha256').update(buf).digest('hex');
-    if (got !== want) throw new Error('The downloaded model failed its integrity check, so it was not installed. Try again later.');
-    fs.writeFileSync(dest + '.tmp', buf); fs.renameSync(dest + '.tmp', dest);
-  } else say('Model already downloaded and verified');
-  fs.writeFileSync(path.join(DIR, 'MODEL-LICENSE.txt'), await get(`${base}/MODEL-LICENSE.txt`));
-  fs.writeFileSync(path.join(DIR, 'smart.json'), JSON.stringify({ size, model: file, sha256: want, ort: ORT_VERSION, installed: new Date().toISOString() }, null, 2) + '\n');
+  say(`Getting the ${ {s: 'small', l: 'recommended', x: 'most accurate'}[size] } detector model (${file}, ${models.SIZES_MB[size]} MB, once)`);
+  let shown = -1;
+  await models.download(size, path.join(DIR, 'models'), p => { const pct = Math.floor(p * 10) * 10; if (pct !== shown) { shown = pct; process.stdout.write(`    ${pct}%\r`); } });
+  say('Model downloaded and verified');
+  try { fs.copyFileSync(path.join(DIR, 'models', 'MODEL-LICENSE.txt'), path.join(DIR, 'MODEL-LICENSE.txt')); } catch {}
+  fs.writeFileSync(path.join(DIR, 'smart.json'), JSON.stringify({ size, model: file, sha256: models.PINNED[size], ort: ORT_VERSION, installed: new Date().toISOString() }, null, 2) + '\n');
 
   // 3) quick self-test so a broken install is caught now, not at 3 a.m.
   say('Testing it on a sample picture');

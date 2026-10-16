@@ -1,6 +1,6 @@
 {
   "name": "spectacle",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Self-hosted family security cameras with motion alerts, live presence, and an offline bug/flower/bird biome log.",
   "private": true,
   "license": "MIT",

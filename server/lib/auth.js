@@ -5,7 +5,7 @@ const { Store } = require('./store');
 
 const COLORS = ['#ff7a59', '#4cc9f0', '#b5e48c', '#f9c74f', '#c77dff', '#ff99c8', '#90dbf4', '#ffd166'];
 const SESSION_DAYS = 30;
-const LEGAL_VERSION = '2026-10-16';
+const LEGAL_VERSION = '2026-10-16b';
 
 let DUMMY = null;
 class Auth {

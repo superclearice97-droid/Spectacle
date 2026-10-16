@@ -13,6 +13,8 @@ function prepareRuntime(userData, ffmpeg) {
     https: { enabled: false },
     publicUrl: '', ffmpeg,
     recording: { minFreeGB: 1, stagingDir: 'auto' },
+    // Smart detection: ONNX Runtime ships inside the app; the model is downloaded from Settings into here.
+    smart: { modelDir: path.join(userData, 'addons', 'models') },
   };
   fs.writeFileSync(configFile, JSON.stringify(config, null, 2), { mode: 0o600 });
   return configFile;

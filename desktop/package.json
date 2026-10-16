@@ -1,6 +1,6 @@
 {
   "name": "spectacle-desktop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Independent offline Spectacle camera app for Linux",
   "author": "Spectacle contributors",
@@ -43,6 +43,14 @@
       {
         "from": "../LICENSE",
         "to": "spectacle/LICENSE"
+      },
+      {
+        "from": "vendor/addons/node_modules",
+        "to": "spectacle/addons/node_modules"
+      },
+      {
+        "from": "../tools/detector/MODEL-LICENSE.txt",
+        "to": "spectacle/addons/MODEL-LICENSE.txt"
       }
     ],
     "linux": {

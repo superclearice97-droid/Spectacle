@@ -37,6 +37,18 @@ Leave Tailscale switched on. It uses very little battery.
 
 That's it. Spectacle starts by itself when your phone restarts.
 
+## Answering the doorbell and talking to visitors
+
+When someone presses **Ring** on a door camera, your phone rings with **Someone is at Front door**.
+
+1. Tap the notification (or **Answer**). You'll see them and hear them straight away.
+2. Tap the big **Start talking** button when you want them to hear you. Tap **Stop talking** to listen again.
+3. Tap **Hang up** when you're done.
+
+The visitor hears a chime and sees that someone from the house is talking. Calls are never recorded.
+You can also start a call yourself from any camera that has talking turned on: open the camera and tap **Start a call**.
+The first time, your phone asks to use the microphone. Tap **Allow**.
+
 ## If it says "Can't reach home"
 
 Tailscale is probably switched off. Tap **Open Tailscale**, switch it on so it says **Connected**,
@@ -45,7 +57,7 @@ then come back to Spectacle. It tries again by itself.
 ## Turning an old phone into a camera
 
 You'll get a **camera setup** message instead. On the old phone, install Tailscale (signed in to the same account as the server) and Spectacle, then do step 3. Then tick the box,
-tap **Start camera** and allow the camera. Keep it plugged in. "Dim screen" turns the screen dark while it keeps
+tap **Start camera** and allow the camera (and the microphone, if the family uses two-way talk at that camera). Keep it plugged in. "Dim screen" turns the screen dark while it keeps
 recording.
 
 ## Text size and screen readers

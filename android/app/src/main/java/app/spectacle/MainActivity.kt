@@ -107,11 +107,15 @@ class MainActivity : Activity() {
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread {
-                    if (Prefs.originOf(request.origin.toString()) != prefs.server || !request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                    // Only our own server, and only camera/microphone. Microphone is used for two-way talk calls.
+                    val allowed = setOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE, PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                    if (Prefs.originOf(request.origin.toString()) != prefs.server || request.resources.isEmpty() || !request.resources.all { it in allowed }) {
                         request.deny(); return@runOnUiThread
                     }
-                    if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
-                    else { pendingPermission = request; requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA) }
+                    val need = request.resources.map { if (it == PermissionRequest.RESOURCE_VIDEO_CAPTURE) Manifest.permission.CAMERA else Manifest.permission.RECORD_AUDIO }
+                        .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                    if (need.isEmpty()) request.grant(request.resources)
+                    else { pendingPermission?.deny(); pendingPermission = request; requestPermissions(need.toTypedArray(), REQ_CAMERA) }
                 }
             }
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
@@ -240,7 +244,14 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         val granted = results.isNotEmpty() && results[0] == PackageManager.PERMISSION_GRANTED
         when (requestCode) {
-            REQ_CAMERA -> { pendingPermission?.let { if (granted) it.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else it.deny() }; pendingPermission = null }
+            REQ_CAMERA -> {
+                pendingPermission?.let { req ->
+                    // Grant whatever the person allowed (e.g. camera yes, microphone no still lets the camera run).
+                    val ok = req.resources.filter { r -> checkSelfPermission(if (r == PermissionRequest.RESOURCE_VIDEO_CAPTURE) Manifest.permission.CAMERA else Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED }
+                    if (ok.isNotEmpty()) req.grant(ok.toTypedArray()) else req.deny()
+                }
+                pendingPermission = null
+            }
             REQ_NOTIFY -> { startAlerts(); askBattery() }
         }
     }

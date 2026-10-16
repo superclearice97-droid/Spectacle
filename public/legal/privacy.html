@@ -3,7 +3,7 @@
 <body><main class="legal">
 <p><a href="/">← Back to Spectacle</a></p>
 <h1>Privacy policy</h1>
-<p class="muted">Version 2026-10-16. This policy covers this self-hosted copy of Spectacle. The household member who installed it (the "administrator") is responsible for it and for the data it holds.</p>
+<p class="muted">Version 2026-10-16b. This policy covers this self-hosted copy of Spectacle. The household member who installed it (the "administrator") is responsible for it and for the data it holds.</p>
 
 <h2>The short version</h2>
 <ul>
@@ -17,6 +17,8 @@
 <ul>
 <li><b>Video from cameras</b>, recorded continuously (24/7) when recording is on. Audio is off by default and is only recorded if the administrator turns it on for an IP camera.</li>
 <li><b>Motion and alert events</b>: the time, camera, and a snapshot image. With smart detection on, also what kind of thing was seen (person, vehicle, animal or bag), which zone it was in, how long it stayed, and outline boxes around what was seen in the snapshot.</li>
+<li><b>Two-way talk</b> (optional, turned on per camera by the administrator): during a call, live audio goes between the family member's phone or computer and the camera's phone or webcam, through your own Spectacle server. <b>Calls are never recorded or stored.</b> The camera device's microphone is on only during a call, and every call starts with a chime and an on-screen notice on the camera. A family member's microphone is on only while they've tapped "Start talking". Kept afterwards: a log line saying which camera, who joined, who spoke, when it started and how long it lasted.</li>
+<li><b>Doorbell presses</b> (if the doorbell button is on): the time, the camera, and a snapshot, like a motion event.</li>
 <li><b>Smart detection</b> (optional, installed by the administrator): checks camera frames <b>on the home server only</b> for people, vehicles and animals. It tells whether <i>a</i> person is there, never <i>who</i>: it does not recognise faces, bodies, voices or walking style, and stores no face or body measurements. While something is in view, its position is followed for a few seconds in memory only, so the app knows when it enters a zone; nothing about it is kept except the alert event above. Zones are areas the administrator draws on each camera's picture.
 <li><b>Biome log</b>: photos cropped from camera frames or uploaded by you, the species the app thinks it shows, the time and camera.</li>
 <li><b>Accounts</b>: name, username, a scrypt hash of your password (never the password itself), your notification settings, the date you accepted these terms, and sign-in sessions.</li>
@@ -29,7 +31,8 @@
 <ul>
 <li>The Spectacle app talks <b>only</b> to your family's own Spectacle server. It contains no analytics, ads, crash reporting or trackers, and doesn't use Google's push service.</li>
 <li><b>Alerts:</b> to deliver alerts with the app closed, it keeps one connection to your server and shows a small "Watching for alerts" notification (you can hide it in Android's notification settings). Turn alerts off any time in Settings.</li>
-<li><b>Camera:</b> used only when the phone is set up as a camera and you tap Start. The microphone is never used.</li>
+<li><b>Camera:</b> used only when the phone is set up as a camera and you tap Start.</li>
+<li><b>Microphone:</b> used only for two-way talk calls. On a camera phone it's on only during a call, which the camera announces with a chime and notice. On your phone it's on only while you've tapped "Start talking". Audio is never recorded.
 <li><b>Stored on the phone:</b> your server's address, its certificate fingerprint (so the app trusts only your server), your sign-in cookie and app settings. Android backups of the app are disabled. "Disconnect this phone" in Settings erases them.</li>
 <li><b>Other permissions:</b> notifications (to show alerts), start at boot (so alerts resume after a restart), and an optional request to ignore battery optimisation (so alerts aren't delayed).</li>
 <li>Downloading the app from GitHub is subject to GitHub's privacy statement.</li>

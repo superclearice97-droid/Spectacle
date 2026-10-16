@@ -35,6 +35,7 @@ class AlertService : Service() {
 
     companion object {
         private const val CH_ALERTS = "alerts"
+        private const val CH_DOORBELL = "doorbell"
         private const val CH_STATUS = "status"
         private const val STATUS_ID = 1
         fun start(ctx: Context) {
@@ -50,6 +51,10 @@ class AlertService : Service() {
     override fun onCreate() {
         super.onCreate()
         val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(CH_DOORBELL, "Doorbell", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "When someone presses the Ring button on a camera"
+            enableVibration(true); vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 600)
+        })
         nm.createNotificationChannel(NotificationChannel(CH_ALERTS, "Motion & wildlife alerts", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "When a camera sees movement or a new species"
             enableVibration(true)
@@ -136,7 +141,7 @@ class AlertService : Service() {
     private fun handle(text: String) {
         val m = try { JSONObject(text) } catch (_: Exception) { return }
         when (m.optString("type")) {
-            "alert" -> notify(m.optString("title", "Spectacle"), m.optString("body"), m.optString("url", "/").removePrefix("/").let { "/$it" })
+            "alert" -> notify(m.optString("title", "Spectacle"), m.optString("body"), m.optString("url", "/").removePrefix("/").let { "/$it" }, m.optString("kind") == "ring")
             "sighting" -> if (m.optBoolean("isNew")) {
                 val sp = m.optJSONObject("species")
                 val name = sp?.optString("common")?.takeIf { it.isNotEmpty() } ?: sp?.optString("scientific") ?: "a new species"
@@ -145,16 +150,18 @@ class AlertService : Service() {
         }
     }
 
-    private fun notify(title: String, body: String, path: String) {
+    private fun notify(title: String, body: String, path: String, ring: Boolean = false) {
         if (MainActivity.visible) return // the open app already shows it
-        val n = Notification.Builder(this, CH_ALERTS)
+        val b = Notification.Builder(this, if (ring) CH_DOORBELL else CH_ALERTS)
+        if (ring) b.addAction(Notification.Action.Builder(null as android.graphics.drawable.Icon?, "Answer", openIntent(path)).build())
+        val n = b
             .setSmallIcon(R.drawable.ic_stat_eye)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
             .setContentIntent(openIntent(path))
             .setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_ALARM)
+            .setCategory(if (ring) Notification.CATEGORY_CALL else Notification.CATEGORY_ALARM)
             .build()
         try { getSystemService(NotificationManager::class.java).notify(nextId++, n) } catch (_: SecurityException) {}
     }

@@ -44,3 +44,21 @@ jobs:
         run: npm run smart-detection -- --size ${{ matrix.size }}
       - name: Person walks into a zone → one alert
         run: node test/smart-e2e.js
+
+  two-way-talk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install ffmpeg and a test browser
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install --quiet playwright==1.55.0 && python -m playwright install --with-deps chromium
+      - name: Doorbell + two-way talk in real Chromium (simulated mic and camera)
+        run: python test/talk_e2e.py

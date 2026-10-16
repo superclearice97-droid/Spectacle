@@ -17,7 +17,7 @@ class Notifier {
           .catch(() => {});
       }
     }
-    if (this.cfg.ntfy.url && kind === 'motion') {
+    if (this.cfg.ntfy.url && (kind === 'motion' || kind === 'ring')) {
       fetch(this.cfg.ntfy.url, { method: 'POST', headers: { Title: title, Tags: 'rotating_light', Click: (this.cfg.publicUrl || '') + (url || '/') }, body }).catch(() => {});
     }
   }

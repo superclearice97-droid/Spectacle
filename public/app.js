@@ -9,7 +9,8 @@ const fmtDay = t => { const d = new Date(t), today = new Date(); const y = new D
 const ago = t => { const s = (Date.now() - new Date(t)) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' d ago'; };
 const view = $('#view');
 
-const S = { me: null, armed: true, cameras: [], presence: [], ws: null, route: '', vapidKey: '', events: [], feed: [] };
+let T = null; // the open intercom call, if any
+const S = { talk: {}, me: null, armed: true, cameras: [], presence: [], ws: null, route: '', vapidKey: '', events: [], feed: [] };
 
 async function api(path, opts = {}) {
   const init = { method: opts.method || 'GET', headers: { 'X-Spectacle': '1' }, credentials: 'same-origin' };
@@ -47,8 +48,11 @@ function connect() {
     else if (m.type === 'alert') {
       if (m.kind === 'motion') { toast(m.title, m.body, 'motion', () => location.hash = m.url.replace('/', '')); flashTile(m.camId); }
       else if (m.kind === 'test') toast(m.title, m.body);
+      else if (m.kind === 'ring') { toast('🔔 ' + m.title, 'Tap to answer', 'motion', () => location.hash = '#talk/' + m.camId); flashTile(m.camId); if (S.route === 'cam/' + m.camId) renderTalk(); }
     }
     else if (m.type === 'event') { S.events.unshift(m.event); if (S.route === 'events') render(); }
+    else if (m.type === 'smart-install') { S.smartInstall = m; if (m.done || m.error) { S.smart = null; if (m.done) toast('Smart detection is on', 'Choose what each camera alerts on in Settings → Cameras'); else toast('Smart detection wasn\'t installed', m.error); } if (S.route === 'settings') m.done || m.error ? render() : updateSmartProgress(); }
+    else if (m.type === 'talk-state') { S.talk[m.camId] = m; if (S.route.endsWith('/' + m.camId)) renderTalk(); const t = $(`.tile[data-cam="${CSS.escape(m.camId)}"] [data-call]`); if (t) t.hidden = !m.active; }
     else if (m.type === 'detections') { if (S.route === 'cam/' + m.camId) drawBoxes($('#liveBoxes'), m.objects, true); }
     else if (m.type === 'sighting') { if (S.route.startsWith('biome')) render(); if (!m.isNew) return; toast('New species spotted', `${m.species.common || m.species.scientific} · ${m.cam}`, 'sighting', () => location.hash = '#biome/' + m.species.id); }
     else if (m.type === 'armed') { S.armed = m.armed; renderArmed(); toast(m.armed ? 'Alerts armed' : 'Alerts paused', 'by ' + m.by); }
@@ -95,13 +99,14 @@ async function render() {
   const route = location.hash.slice(1) || 'cameras';
   // stop any MJPEG streams from the previous page
   $$('img[data-live]', view).forEach(i => { i.src = ''; });
+  if (T && !(route === 'cam/' + T.camId || route === 'talk/' + T.camId)) hangUp();
   S.route = route;
-  const tab = route.startsWith('zones') ? 'settings' : route.split('/')[0] === 'cam' || route.startsWith('event') ? (route.startsWith('cam') ? 'cameras' : 'events') : route.split('/')[0];
+  const tab = route.startsWith('zones') ? 'settings' : route.startsWith('talk/') ? 'cameras' : route.split('/')[0] === 'cam' || route.startsWith('event') ? (route.startsWith('cam') ? 'cameras' : 'events') : route.split('/')[0];
   $$('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   sendView();
   try {
     const [page, arg] = route.split('/');
-    const fn = { cameras: pageCameras, cam: pageCam, zones: pageZones, events: pageEvents, event: pageEvent, biome: arg ? pageSpecies : pageBiome, family: pageFamily, settings: pageSettings, identify: pageIdentify, legal: pageLegal }[page] || pageCameras;
+    const fn = { cameras: pageCameras, cam: pageCam, talk: id => pageCam(id, { answer: true }), zones: pageZones, events: pageEvents, event: pageEvent, biome: arg ? pageSpecies : pageBiome, family: pageFamily, settings: pageSettings, identify: pageIdentify, legal: pageLegal }[page] || pageCameras;
     await fn(arg ? decodeURIComponent(arg) : undefined);
     renderPresence();
   } catch (e) { if (S.me) view.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
@@ -115,7 +120,7 @@ function tileHtml(c, i) {
     ${off ? '' : `<img data-live src="/api/cameras/${esc(c.id)}/live" alt="">`}
     ${off ? `<div class="off">${c.status === 'connecting' ? 'Connecting…' : c.type === 'browser' ? 'Waiting for the camera phone to connect' : 'Camera offline' + (c.error ? `<br><span class="small">${esc(c.error)}</span>` : '')}</div>` : ''}
     <div class="shade"></div>
-    <div class="hd"><span class="name"><span class="dot ${esc(c.status)}"></span> ${esc(c.name)}</span>${c.record ? '<span class="pill rec">REC</span>' : ''}</div>
+    <div class="hd"><span class="name"><span class="dot ${esc(c.status)}"></span> ${esc(c.name)}</span><span class="row" style="gap:6px"><span class="pill ok" data-call ${c.talk && c.talk.session && c.talk.session.active ? '' : 'hidden'}>On a call</span>${c.record ? '<span class="pill rec">REC</span>' : ''}</span></div>
     <div class="ft"><span class="clock" data-clock></span><span class="watchers" data-watchers="${esc(c.id)}"></span></div>
   </article>`;
 }
@@ -139,7 +144,7 @@ function flashTile(id) { const t = $(`.tile[data-cam="${CSS.escape(id || '')}"]`
 function tickClocks() { const s = new Date().toLocaleTimeString(); $$('[data-clock]').forEach(e => e.textContent = s); }
 setInterval(tickClocks, 1000);
 
-async function pageCam(id) {
+async function pageCam(id, opts = {}) {
   await loadCameras();
   const c = S.cameras.find(x => x.id === id); if (!c) throw new Error('Camera not found');
   const [{ events }, { recordings }] = await Promise.all([api('/api/events?limit=30&cam=' + encodeURIComponent(id)), api(`/api/cameras/${encodeURIComponent(id)}/recordings`)]);
@@ -151,12 +156,72 @@ async function pageCam(id) {
       <button class="btn" id="ident"><svg viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/></svg>What's in view?</button>
       ${S.me.role === 'admin' && S.smart && S.smart.available ? `<a class="btn" href="#zones/${esc(c.id)}"><svg viewBox="0 0 24 24"><path d="M4 6l7-2 9 4-2 11-12 1z"/></svg>Zones (${c.smart.zones.length})</a>` : ''}</div>
     <div id="identOut"></div>
+    <section class="card stack talkbox" id="talkBox" ${c.talk.enabled ? '' : 'hidden'} aria-labelledby="talkHead"></section>
     <div class="journal" style="margin-top:6px"><section><h2>Recent alerts</h2><div class="events">${events.length ? events.map(evHtml).join('') : '<p class="muted">No motion recorded yet.</p>'}</div></section>
     <section><h2>Recordings</h2><video id="player" controls playsinline preload="none" hidden></video><div class="stack small" style="margin-top:8px">${recordings.length ? recordings.slice(0, 60).map(r => `<button class="btn ghost" style="width:100%;justify-content:space-between" data-rec="${esc(r.file)}"><span>${esc(fmtDay(r.start))} · ${esc(fmtTime(r.start))}–${esc(fmtTime(r.end))}</span><span class="mono">${(r.size / 1e6).toFixed(0)} MB</span></button>`).join('') : `<p class="muted">${c.record ? 'Recording starts as soon as the camera is live.' : 'Recording is off for this camera.'}</p>`}</div></section></div>`;
   $('#snap').onclick = () => window.open(`/api/cameras/${encodeURIComponent(id)}/snapshot`, '_blank');
   $('#ident').onclick = async () => { $('#identOut').innerHTML = '<p class="muted">Looking closely…</p>'; try { const r = await api(`/api/cameras/${encodeURIComponent(id)}/identify`, { method: 'POST' }); showCandidates($('#identOut'), r.candidates); } catch (e) { $('#identOut').innerHTML = `<p class="err">${esc(e.message)}</p>`; } };
   $$('[data-rec]').forEach(b => b.onclick = () => { const p = $('#player'); p.hidden = false; p.src = `/media/rec/${encodeURIComponent(id)}/${encodeURIComponent(b.dataset.rec)}`; p.play(); p.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
   bindEvClicks();
+  S.talkCam = c; S.talkAnswer = !!opts.answer; S.talk[c.id] = c.talk.session; renderTalk();
+}
+
+// ---------------- two-way talk ----------------
+function renderTalk() {
+  const box = $('#talkBox'), c = S.talkCam; if (!box || !c || !c.talk.enabled) return;
+  const st = S.talk[c.id] || {}, others = (st.people || []).filter(n => n !== S.me.name);
+  if (!T) {
+    box.innerHTML = `<h2 id="talkHead">Talk through this camera</h2>
+      ${S.talkAnswer ? `<p class="talk-ring" role="alert">🔔 Someone rang the doorbell at ${esc(c.name)}.</p>` : ''}
+      ${st.active ? `<p class="small">On a call now: ${esc(others.join(', ') || 'someone')}. You can join.</p>` : '<p class="small muted">They\'ll hear a chime and see that someone from the house is on the line. Nothing is recorded.</p>'}
+      <button class="btn primary big" id="talkOpen">${S.talkAnswer ? '📞 Answer' : st.active ? '🎧 Join the call' : '🎙️ Start a call'}</button>`;
+    $('#talkOpen').onclick = () => openTalk(c);
+    return;
+  }
+  const busy = st.talker && st.talker !== S.me.name;
+  box.innerHTML = `<h2 id="talkHead">On a call · ${esc(c.name)}</h2>
+    <p class="small" aria-live="polite" id="talkStatus">${!st.cameraReady ? 'Connecting to the camera…' : busy ? `${esc(st.talker)} is talking. You can listen.` : T.speaking ? 'They can hear you now.' : 'You can hear them. Tap the big button to talk.'}${others.length ? ` · Also listening: ${esc(others.join(', '))}` : ''}</p>
+    <div class="meter" aria-hidden="true"><i id="talkLevel"></i></div>
+    <button class="btn big ${T.speaking ? 'danger' : 'primary'}" id="talkSpeak" aria-pressed="${T.speaking}" ${busy || !st.cameraReady ? 'disabled' : ''}>${T.speaking ? '■ Stop talking' : '🎤 Start talking'}</button>
+    <div class="row"><label class="f" style="flex:1">Their volume<input type="range" id="talkVol" min="0" max="2" step="0.1" value="${T.vol}"></label><button class="btn danger" id="talkEnd">Hang up</button></div>`;
+  $('#talkSpeak').onclick = toggleSpeak;
+  $('#talkEnd').onclick = () => hangUp();
+  $('#talkVol').oninput = e => { T.vol = +e.target.value; T.spk.volume(T.vol); };
+}
+async function openTalk(c) {
+  if (!window.SpTalk || !SpTalk.supported()) return toast('Talking needs a newer browser', 'Use Chrome, Firefox or the Spectacle app');
+  try {
+    await SpTalk.audio(); // unlocked by this tap
+    const sock = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/talk?cam=' + encodeURIComponent(c.id));
+    sock.binaryType = 'arraybuffer';
+    T = { camId: c.id, sock, spk: await SpTalk.speaker(1.2), mic: null, speaking: false, vol: 1.2 };
+    sock.onmessage = e => {
+      if (e.data instanceof ArrayBuffer) { T && T.spk.push(e.data); return; }
+      const m = JSON.parse(e.data);
+      if (m.type === 'talk-state') { S.talk[m.camId] = m; renderTalk(); }
+      else if (m.type === 'talk-error') toast('Can\'t talk right now', m.error);
+      else if (m.type === 'talk-ended') toast('Call ended', m.reason === 'time limit' ? 'Calls end after 15 minutes. Start a new one if needed.' : '');
+    };
+    sock.onclose = () => { if (T && T.sock === sock) hangUp(true); };
+    S.talkAnswer = false; renderTalk();
+  } catch (e) { toast('Couldn\'t start the call', e.message); hangUp(true); }
+}
+async function toggleSpeak() {
+  if (!T) return;
+  if (!T.speaking) {
+    try {
+      T.mic = await SpTalk.mic(f => { if (T && T.speaking && T.sock.readyState === 1 && T.sock.bufferedAmount < 64000) T.sock.send(f); }, lvl => { const el = $('#talkLevel'); if (el) el.style.width = Math.min(100, lvl * 160) + '%'; });
+      T.speaking = true; T.sock.send(JSON.stringify({ type: 'speak', on: true }));
+    } catch (e) { toast('Microphone blocked', 'Allow the microphone for Spectacle in your phone or browser settings, then try again.'); }
+  } else { T.speaking = false; T.mic && T.mic.stop(); T.mic = null; T.sock.send(JSON.stringify({ type: 'speak', on: false })); }
+  renderTalk();
+}
+function hangUp(quiet) {
+  if (!T) return;
+  const t = T; T = null;
+  try { t.mic && t.mic.stop(); t.spk && t.spk.stop(); if (t.sock.readyState <= 1) t.sock.close(); } catch {}
+  if (!quiet) toast('Call ended');
+  renderTalk();
 }
 
 // ---------------- zones (draw areas on the picture) ----------------
@@ -208,6 +273,8 @@ const KIND = { person: ['Person', 'People'], vehicle: ['Vehicle', 'Vehicles'], a
 const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 function evTitle(e) {
   if (!e.kind) return 'Motion';
+  if (e.kind === 'ring') return 'Doorbell rang';
+  if (e.kind === 'talk') return `Call: ${(e.people || []).join(', ')} · ${e.durationSec < 60 ? e.durationSec + ' s' : Math.round(e.durationSec / 60) + ' min'}`;
   const what = e.count > 1 ? `${e.count} ${KIND[e.kind][1].toLowerCase()}` : (e.kind === 'person' ? 'Person' : cap(e.label) || KIND[e.kind][0]);
   return `${what} ${e.zone ? 'in ' + e.zone : 'seen'}`;
 }
@@ -360,7 +427,7 @@ async function pageSettings() {
     <div class="setting"><div><b>New-species alerts</b><div class="small muted">When the biome log finds something new.</div></div><label class="switch"><input type="checkbox" aria-label="New-species alerts" id="pBiome" ${me.prefs.biomeAlerts !== false ? 'checked' : ''}><span></span></label></div>
     ${S.cameras.length ? `<div class="setting" style="display:block"><b>Mute cameras for me</b><div class="row" style="margin-top:8px">${S.cameras.map(c => `<label class="check"><input type="checkbox" data-mute="${esc(c.id)}" ${me.prefs.mutedCams.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</div></div>` : ''}
   </section>
-  ${me.role === 'admin' ? camerasAdminHtml() : ''}
+  ${me.role === 'admin' ? smartSetupHtml() + camerasAdminHtml() : ''}
   <section class="card"><h2>Account</h2>
     <form id="pw" class="stack"><label class="f">Current password<input type="password" id="pw1" autocomplete="current-password"></label><label class="f">New password (10+ characters)<input type="password" id="pw2" autocomplete="new-password"></label><button class="btn">Change password</button></form>
     ${IN_APP ? `<p class="small muted" style="margin-top:14px">Spectacle app ${esc(window.SpectacleAndroid.version())}</p>${window.SpectacleAndroid.openStandalone ? '<button class="btn" id="appStandalone" type="button">Use this phone independently</button>' : ''}<button class="btn ghost" id="appDisconnect">Disconnect this phone</button>` : ''}
@@ -387,9 +454,21 @@ async function pageSettings() {
   $('#logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); S.me = null; S.ws && S.ws.close(); boot(); };
   $('#delme').onclick = async () => { if (!confirm('Delete your account? This can\'t be undone. Camera footage belongs to the household and stays.')) return; try { await api('/api/me', { method: 'DELETE' }); S.me = null; boot(); } catch (e) { toast('Not deleted', e.message); } };
   if (me.role === 'admin') bindCameraAdmin();
+  $$('[data-smart]').forEach(b => b.onclick = async () => { try { await api('/api/smart/install', { method: 'POST', body: { size: b.dataset.smart } }); S.smartInstall = { pct: 0 }; render(); } catch (e) { toast('Couldn\'t start', e.message); } });
 }
+function smartSetupHtml() {
+  const st = S.smart || {};
+  if (st.available || !st.canInstall) return '';
+  const ins = S.smartInstall && !S.smartInstall.done && !S.smartInstall.error ? S.smartInstall : st.installing;
+  return `<section class="card stack" id="smartSetup"><h2>Smart detection</h2>
+    <p class="small">Tell people, vehicles and animals apart, so alerts say "Person in Driveway" instead of "Motion", and draw zones. It runs on this computer only; nothing is sent anywhere. Turning it on downloads the detector once.</p>
+    ${ins ? `<p class="small" aria-live="polite" id="smartPct">Downloading… ${ins.pct || 0}%</p><div class="meter"><i id="smartBar" style="width:${ins.pct || 0}%"></i></div>`
+      : `<div class="stack">${['l', 's', 'x'].map(k => `<button class="btn ${k === 'l' ? 'primary big' : ''}" data-smart="${k}">${k === 'l' ? 'Turn on smart detection' : 'Use the ' + (k === 's' ? 'small' : 'most accurate') + ' version'} <span class="small" style="font-weight:400">· ${esc(st.labels ? st.labels[k] : k)}, ${st.sizes ? st.sizes[k] : '?'} MB</span></button>`).join('')}</div>`}
+  </section>`;
+}
+function updateSmartProgress() { const m = S.smartInstall; if (!$('#smartSetup')) return; if (!$('#smartPct')) return render(); $('#smartPct').textContent = `Downloading… ${m.pct || 0}%`; $('#smartBar').style.width = (m.pct || 0) + '%'; }
 function smartAdminHtml(c) {
-  if (!S.smart || !S.smart.available) return `<div class="setting" style="display:block"><b>Smart detection</b><div class="small muted">Tell people, vehicles and animals apart, and set zones. It isn't installed yet: on the server run <span class="mono">npm run smart-detection</span>, then restart Spectacle. It runs on your server only.</div></div>`;
+  if (!S.smart || !S.smart.available) return S.smart && S.smart.canInstall ? `<div class="setting" style="display:block"><b>Smart detection</b><div class="small muted">Turn it on at the top of Settings to tell people, vehicles and animals apart.</div></div>` : `<div class="setting" style="display:block"><b>Smart detection</b><div class="small muted">Tell people, vehicles and animals apart, and set zones. It isn't installed yet: on the server run <span class="mono">npm run smart-detection</span>, then restart Spectacle. It runs on your server only.</div></div>`;
   const k = c.smart.kinds;
   return `<fieldset class="setting" style="display:block;border:0;padding:12px 0;margin:0"><legend style="font-weight:700;padding:0">Smart detection <span class="pill ok">${esc(S.smart.model)}</span></legend>
     <label class="check" style="margin-top:6px"><input type="checkbox" name="smartOn" ${c.smart.enabled ? 'checked' : ''}> Use smart detection on this camera</label>
@@ -408,6 +487,8 @@ function camerasAdminHtml() {
         <div class="setting"><span>Send motion alerts</span><label class="switch"><input type="checkbox" name="notify" ${c.motion.notify !== false ? 'checked' : ''}><span></span></label></div>
         <label class="f">Motion sensitivity: <output>${c.motion.sensitivity}</output><input type="range" name="sens" min="1" max="10" value="${c.motion.sensitivity}"></label>
         ${smartAdminHtml(c)}
+        ${c.talk.supported ? `<div class="setting"><div><span>Two-way talk</span><div class="small muted">Family can talk to whoever is at this camera. The camera phone plays a chime and shows a notice during calls; nothing is recorded.</div></div><label class="switch"><input type="checkbox" name="talkOn" ${c.talk.enabled ? 'checked' : ''}><span></span></label></div>
+        <div class="setting"><div><span>Doorbell button</span><div class="small muted">Shows a big Ring button on the camera screen. Pressing it alerts everyone, even when set to Home.</div></div><label class="switch"><input type="checkbox" name="bell" ${c.talk.doorbell ? 'checked' : ''}><span></span></label></div>` : `<div class="setting" style="display:block"><span>Two-way talk</span><div class="small muted">Works with phone and webcam cameras. IP cameras can't be talked through yet.</div></div>`}
         <div class="setting"><span>Bug & flower log</span><label class="switch"><input type="checkbox" name="biome" ${c.biome ? 'checked' : ''}><span></span></label></div>
         ${c.type === 'rtsp' ? `<div class="setting"><div><span>Record audio</span><div class="small muted">Off by default. Recording conversations without consent is illegal in many places.</div></div><label class="switch"><input type="checkbox" name="audio" ${c.audio ? 'checked' : ''}><span></span></label></div>` : ''}
         <div class="row"><button class="btn primary">Save</button><button type="button" class="btn danger" data-del="${esc(c.id)}">Remove camera</button></div>
@@ -427,6 +508,13 @@ function bindCameraAdmin() {
   $$('[data-edit]').forEach(form => form.onsubmit = async e => {
     e.preventDefault(); const c = S.cameras.find(x => x.id === form.dataset.edit);
     const body = { name: form.name.value, record: form.record.checked, biome: form.biome.checked, motion: { enabled: form.motionOn.checked, notify: form.notify.checked, sensitivity: +form.sens.value } };
+    if (form.talkOn) {
+      body.talk = { enabled: form.talkOn.checked, doorbell: form.bell.checked };
+      if (form.talkOn.checked && !c.talk.enabled) {
+        if (!confirm('Two-way talk\n\nWhen a call starts, the camera phone plays a chime and shows "someone from the house is talking". Calls are live and never recorded.\n\nOnly use it where people can see the camera, and tell household members and guests. In some places, listening to people without them knowing is illegal.\n\nTurn on two-way talk?')) { form.talkOn.checked = false; body.talk.enabled = false; }
+        else body.ackTalk = true;
+      }
+    }
     if (form.smartOn) body.smart = { enabled: form.smartOn.checked, kinds: $$('input[name=kind]', form).filter(x => x.checked).map(x => x.value), motionAlerts: form.anyMotion.checked };
     if (form.url && form.url.value && !form.url.value.startsWith('(saved')) body.url = form.url.value;
     if (form.audio && form.audio.checked !== c.audio) { if (form.audio.checked && !confirm('Audio recording: in many US states and countries, recording a conversation needs everyone\'s consent. Only enable this if everyone who could be heard has agreed. Enable?')) { form.audio.checked = false; } else { body.audio = form.audio.checked; body.ackAudio = true; } }

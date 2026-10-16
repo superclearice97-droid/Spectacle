@@ -2,7 +2,7 @@ name: Linux desktop
 on:
   push:
     branches: ['**']
-    paths: ['desktop/**', 'server/**', 'public/**', 'models/**', '.github/workflows/linux.yml']
+    paths: ['desktop/**', 'server/**', 'public/**', 'models/**', 'tools/detector/**', '.github/workflows/linux.yml']
   pull_request:
     paths: ['desktop/**', 'server/**', 'public/**', 'models/**']
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   desktop:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -19,10 +19,30 @@ jobs:
           node-version: 24
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb libgtk-3-0 libnss3 libasound2t64
       - run: npm ci --prefix desktop
+      - name: Bundle ONNX Runtime for smart detection (CPU, Linux x64 only)
+        env:
+          npm_config_onnxruntime_node_install: skip
+          npm_config_onnxruntime_node_install_cuda: skip
+        run: |
+          mkdir -p desktop/vendor/addons
+          echo '{"name":"spectacle-addons","private":true,"license":"MIT"}' > desktop/vendor/addons/package.json
+          npm install --prefix desktop/vendor/addons --no-audit --no-fund --omit=dev --save-exact onnxruntime-node@1.24.3
+          # Keep only the Linux x64 CPU binaries (the package ships every platform).
+          ORT=desktop/vendor/addons/node_modules/onnxruntime-node
+          find "$ORT/bin" -mindepth 3 -maxdepth 3 -type d ! -path '*/linux/x64' -exec rm -rf {} + || true
+          find "$ORT/bin" -mindepth 2 -maxdepth 2 -type d ! -name linux -exec rm -rf {} + || true
+          rm -f "$ORT"/bin/*/linux/x64/*cuda* "$ORT"/bin/*/linux/x64/*tensorrt* || true
+          du -sh "$ORT"; find "$ORT/bin" -type f | head
+
       - name: Test local Linux runtime and embedded browser
         run: |
           xvfb-run -a desktop/node_modules/.bin/electron --no-sandbox desktop/test.cjs
           xvfb-run -a desktop/node_modules/.bin/electron --no-sandbox desktop/test-main.cjs
+      - name: Smart detection inside the desktop app (one-tap install + real model)
+        run: |
+          mkdir -p addons && ln -sfn "$PWD/desktop/vendor/addons/node_modules" addons/node_modules
+          xvfb-run -a desktop/node_modules/.bin/electron --no-sandbox desktop/test-smart.cjs
+          rm -rf addons
       - name: Build Linux installers
         run: npm run dist --prefix desktop
       - uses: actions/upload-artifact@v4
