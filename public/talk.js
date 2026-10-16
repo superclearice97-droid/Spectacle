@@ -42,5 +42,6 @@
     }
   }
   const supported = () => !!(window.AudioWorkletNode && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext);
-  window.SpTalk = { audio, mic, speaker, chime, supported };
+  const state = () => (ctx ? ctx.state : 'none');
+  window.SpTalk = { audio, mic, speaker, chime, supported, state };
 })();

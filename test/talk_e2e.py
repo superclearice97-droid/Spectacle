@@ -102,6 +102,8 @@ try:
         ok(True, "camera shows 'someone from the house' notice as soon as the call starts")
         jordan.wait_for_selector("#talkSpeak:not([disabled])", timeout=10000)
         time.sleep(2)
+        st = f"camera audio={camera.evaluate('SpTalk.state()')}, family audio={jordan.evaluate('SpTalk.state()')}"
+        print("  ·", st); print(f"::notice title=audio state::{st}")
         rx_j = jordan.evaluate("window.__rx")
         ok(rx_j > 20000, f"family hears the camera's microphone ({rx_j // 1000} KB of audio in 2 s)")
         jordan.click("#talkSpeak")
