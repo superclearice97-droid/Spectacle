@@ -1,0 +1,19 @@
+Spectacle smart detection models (dfine-s.onnx, dfine-l.onnx, dfine-x.onnx)
+
+These files are ONNX conversions of the D-FINE object detector, unmodified apart from format conversion
+(export to ONNX with the model's own post-processing included).
+
+  D-FINE: Redefine Regression Task of DETRs as Fine-grained Distribution Refinement
+  Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
+  https://github.com/Peterande/D-FINE  (commit 956d1709314c2c6a4df6f34de232054578a7449f)
+  Licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
+  D-FINE builds on RT-DETR (Copyright (c) 2023 lyuwenyu, Apache-2.0) and uses the HGNetV2 backbone
+  (PaddlePaddle / PaddleDetection authors, Apache-2.0).
+
+Weights used: the "Objects365+COCO" checkpoints published by the D-FINE authors
+(dfine_s_obj2coco.pth, dfine_l_obj2coco_e25.pth, dfine_x_obj2coco.pth).
+Training data: Objects365 (CC BY 4.0, https://www.objects365.org) and COCO 2017
+(annotations CC BY 4.0, https://cocodataset.org; images subject to Flickr terms).
+
+Distributed WITHOUT WARRANTY OF ANY KIND, under the Apache License 2.0.
