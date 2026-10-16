@@ -24,4 +24,5 @@ for name, want in expect.items():
     good = all(found.get(k, 0) >= n for k, n in want.items())
     ok &= good
     print(f"{'PASS' if good else 'FAIL'} {name}: {found} ({ms:.0f} ms)")
+    print(f"::notice title={model}::{'PASS' if good else 'FAIL'} {name}: {found} in {ms:.0f} ms (GitHub's 4-core CPU)")
 sys.exit(0 if ok else 1)
