@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 
 permissions:
@@ -23,3 +23,24 @@ jobs:
         run: for f in $(git ls-files '*.js'); do node --check "$f"; done
       - name: End-to-end smoke test
         run: npm test
+
+  smart-detection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [s, l]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Logic tests (no model)
+        run: node test/smart-unit.js
+      - name: Install the smart detection add-on exactly as users do
+        run: npm run smart-detection -- --size ${{ matrix.size }}
+      - name: Person walks into a zone → one alert
+        run: node test/smart-e2e.js

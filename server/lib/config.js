@@ -21,6 +21,9 @@ const DEFAULTS = {
   motion: { fps: 4, cooldownSec: 60 },
   biome: { enabled: true, intervalSec: 60, minConfidence: 0.6, dedupeMinutes: 30, groups: ['insect', 'plant', 'bird'], tiles: true },
   ntfy: { url: '' },
+  // Optional smart detection (npm run smart-detection). size: '' = whatever was installed (s, l or x).
+  // fps = checks per second per camera while something moves; threads 0 = all but one CPU core.
+  smart: { size: '', fps: 2, threads: 0 },
   // Where family members download the Android app (shown in invites). Change it if you build your own APK.
   appDownloadUrl: 'https://github.com/superclearice97-droid/spectacle/releases/latest/download/Spectacle.apk',          // optional, e.g. https://ntfy.sh/your-secret-topic
   ffmpeg: 'ffmpeg',

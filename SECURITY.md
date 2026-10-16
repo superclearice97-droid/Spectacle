@@ -43,4 +43,6 @@ Only the latest commit on `main` receives security fixes.
   must be JPEG, PNG or WebP and are decoded with a fixed demuxer · path-traversal checks on all media routes.
 - **Other:** encrypted Web Push (RFC 8291), push endpoints limited to real browser push services · systemd
   sandboxing (`ProtectSystem=strict`, no capabilities, restricted namespaces and address families,
-  `UMask=0077`) · no third-party runtime dependencies (nothing to supply-chain).
+  `UMask=0077`) · no third-party runtime dependencies in Spectacle itself (nothing to supply-chain). The optional
+  smart-detection add-on installs one pinned package (onnxruntime-node 1.24.3) and models verified against
+  SHA-256 checksums built into the code.

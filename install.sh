@@ -2,7 +2,8 @@
 # Spectacle installer for Debian/Ubuntu/Raspberry Pi OS/Fedora/Arch.
 # - installs Node.js 22+ and ffmpeg if missing
 # - makes a self-signed HTTPS certificate for your home network
-# - downloads the offline species encyclopedia
+# - downloads the offline species encyclopedia (optional)
+# - installs smart detection: people / vehicles / animals and zones (optional, runs locally)
 # - installs a systemd service so Spectacle runs 24/7 and restarts on boot
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -55,6 +56,21 @@ case "$CHOICE" in
     say "Downloading the offline species database (a few minutes; safe to rerun)"
     node server/scripts/build-species-db.js || echo "Download didn't finish — run 'npm run species-db' later to resume." ;;
   *) echo "Skipped. You can run 'npm run species-db' any time (add --no-images to skip reference photos)." ;;
+esac
+
+# Optional smart detection: tells people, vehicles and animals apart and supports zones.
+# Runs only on this computer (nothing is sent anywhere). One-time download of ~50–250 MB from GitHub.
+SMART="${SPECTACLE_SMART:-}"
+if [ -z "$SMART" ] && [ -t 0 ]; then
+  echo
+  echo "Turn on smart detection? Alerts then say \"Person in Driveway\" instead of just \"Motion\","
+  echo "  and you can draw zones. It runs only on this computer; nothing is sent anywhere."
+  read -r -p "  Install smart detection now? [Y/n] " SMART
+  SMART="${SMART:-y}"
+fi
+case "$SMART" in
+  y|Y|yes|YES) node server/scripts/setup-smart.js || echo "Smart detection didn't install. You can try again later with: npm run smart-detection" ;;
+  *) echo "Skipped. Install it any time with: npm run smart-detection" ;;
 esac
 
 # ---------- Encryption key, sealed to this machine ----------

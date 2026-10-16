@@ -28,6 +28,7 @@ Spectacle turns a Linux box and your cameras (IP cams or old phones) into a 24/7
 - **Cameras, 24/7** — IP cameras (RTSP/ONVIF: Reolink, Amcrest, Tapo, Hikvision…) and any old phone or webcam (opened in a browser). Continuous recording in 10-minute MP4 files, auto-deleted after 14 days or when disk gets low.
 - **Multiple people at once** — everyone signed in sees who else is online (avatars in the top bar) and which camera they're watching (avatars on each camera tile). Quick notes to everyone online from the Family tab.
 - **Motion alerts to the whole family** — phone notifications (Web Push), live in-app alerts, and optional [ntfy](https://ntfy.sh). Snapshot + jump to the moment in the recording. "Armed / Home" switch pauses alerts for everyone; each person can mute cameras for themselves.
+- **Smart detection (optional)**: alerts say *"Person in Driveway"* or *"Car at Front door"* instead of just "Motion". You can draw zones on each camera, set "only alert if they stay 30 seconds", and see live labels while you watch. Parked cars and other things that never move don't trigger alerts. About as accurate as YOLO26x, using the Apache-2.0 [D-FINE](https://github.com/Peterande/D-FINE) detector, entirely on your server.
 - **Biome log** — about once a minute (only when the scene changes) and whenever something small moves, each camera's view is checked against **4,086 species** (1,021 insects, 2,101 plants, 964 birds). Each find gets a folder `data/biome/<Group>/<Order>/<Family>/<Species (Common name)>/` with `info.md` (what it is, classification, where/when seen) and `photos/`. The same folders are browsable in the app, where you confirm or reject each ID. You can also identify any photo you take.
 - **Fully offline identification** — the models run on your server with a built-in engine; photos never leave home. Plain-language explanations are an **optional** one-time download (`npm run species-db`) of Wikipedia summaries + GBIF taxonomy (+ optional reference photos), stored in `data/species-db/`.
 
@@ -107,6 +108,27 @@ Don't expose Spectacle to the internet with router port forwarding.
 
 Restart after editing: `sudo systemctl restart spectacle`.
 
+## Smart detection: people, vehicles, animals and zones
+
+Optional, for the Linux server install. `./install.sh` offers it, or run `npm run smart-detection` any time (then `sudo systemctl restart spectacle`).
+It installs [ONNX Runtime](https://onnxruntime.ai) (MIT) and one D-FINE model into `addons/`, and checks the download
+against a pinned SHA-256. Spectacle itself stays MIT-licensed with no dependencies, and no camera frames ever leave the machine.
+
+| Size | Accuracy (COCO AP) | Comparable to | Time per check* | Pick it for |
+|---|---|---|---|---|
+| `--size s` | 50.7 | YOLO26s (48.6) | ~0.2 s | Raspberry Pi, old laptops |
+| `--size l` (default) | 57.3 | YOLO26x (57.5) | ~0.6 s | Most home servers |
+| `--size x` | 59.3 | better than YOLO26x | ~1 s | Strong desktop CPUs |
+
+\*Measured on GitHub's 4-core CPU. The installer picks `s` or `l` for your hardware automatically.
+
+How it works: ordinary motion detection wakes it up, then it checks about twice a second until things leave. It also
+runs while someone has a camera open, to draw live labels. Each object is followed between checks, so a person who
+walks up the drive and stops raises **one** alert, and things that never move (a parked car, a garden statue) are learned and ignored.
+Zones count an object as "in" when its feet or wheels are inside. Settings live per camera under **Settings → Cameras**; zones under **Zones**.
+
+It only notices *that* a person is there, never *who*: no face recognition, nothing biometric (see `LEGAL-REVIEW.md`).
+
 ## How well does identification work?
 
 It works best when the subject fills a good part of the frame: a camera near a flowerbed, feeder or garden. A wide driveway camera will mostly see nothing small enough to identify. The models are trained on iNaturalist photos (strongest for North America) and know a fixed list of species; anything else gets matched to its closest look-alike, which is why every automatic find starts as **review**. Night-vision (black-and-white) frames are skipped. Each check takes roughly 0.3–1 s per model on a modern CPU, a few seconds on a Raspberry Pi.
@@ -123,6 +145,7 @@ Nothing leaves your home unless you switch it on:
 | Connection | Default | What's sent |
 |---|---|---|
 | Identification (bugs, flowers, birds) | Always local | Nothing — models run on your server |
+| Smart detection (people/vehicles/animals) | Offered at install; runs locally | Nothing. One-time model download from GitHub |
 | Species explanations download | **Off** (asked at install) | Species names only, once, to Wikipedia / Wikimedia Commons / GBIF |
 | Phone notifications (Web Push) | **Off** (each person opts in) | End-to-end encrypted alert text via the browser's push service |
 | ntfy alerts | **Off** | Camera name + time, to the ntfy server you choose |

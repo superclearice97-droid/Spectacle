@@ -14,6 +14,10 @@ const { Identifier } = require('./lib/species');
 const { Biome } = require('./lib/biome');
 const wsLib = require('./lib/ws');
 const vault = require('./lib/vault');
+const { Detector } = require('./lib/smart/detector');
+const { SmartWatch, camSmart } = require('./lib/smart/watch');
+const { cleanZones } = require('./lib/smart/tracker');
+const { GROUP_NAMES, groupOf, nice } = require('./lib/smart/coco');
 
 const cfg = loadConfig();
 const PUBLIC = path.join(cfg.root, 'public');
@@ -22,6 +26,8 @@ const settings = new Store(cfg.dataDir, 'settings', { armed: true, cameras: [] }
 const events = new Store(cfg.dataDir, 'events', { list: [] });
 const cams = new CameraManager(cfg, settings);
 const identifier = new Identifier(cfg);
+const detector = new Detector(cfg);
+const smart = new SmartWatch(cfg, cams, detector);
 
 const SECRETS = path.join(cfg.dataDir, 'secrets.json'), CODE_FILE = path.join(cfg.dataDir, 'SETUP-CODE.txt');
 function setupCode() {
@@ -70,6 +76,10 @@ cams.on('motion', (cam, hit, pipe) => {
   lastMotion.set(cam.id + ':box', { box: hit.box, at: now });
   // Small moving things are good candidates for bug/bird identification.
   if (cam.biome !== false && cfg.biome.enabled && hit.box.w * hit.box.h < 0.35 && now - (lastBiome.get(cam.id) || 0) > 15000) { lastBiome.set(cam.id, now); scan(cam, pipe, hit.box); }
+  smart.motion(cam, hit.box);
+  // With smart detection on, plain "something moved" alerts are replaced by person/vehicle/animal alerts
+  // (unless the camera also asks for any-motion alerts).
+  if (smart.enabledFor(cam) && !camSmart(cam).motionAlerts) return;
   if (now - (lastMotion.get(cam.id) || 0) < cfg.motion.cooldownSec * 1000) return;
   lastMotion.set(cam.id, now);
   const id = now.toString(36) + crypto.randomBytes(3).toString('hex');
@@ -80,6 +90,43 @@ cams.on('motion', (cam, hit, pipe) => {
   if (armed) { ev.notified = true; notifier.alert({ kind: 'motion', title: `Motion: ${cam.name}`, body: `Movement detected at ${new Date(now).toLocaleTimeString()}`, camId: cam.id, url: '/#event/' + id, tag: 'motion-' + cam.id }); }
   events.data.list.unshift(ev); events.data.list = events.data.list.slice(0, 3000); events.save();
   hub.broadcast({ type: 'event', event: ev });
+});
+// ---------------- smart detection -> events, alerts ----------------
+const lastSmart = new Map();
+smart.on('alert', (cam, due, dets, jpeg, now) => {
+  // One alert per camera+zone+kind per cooldown, combining everyone who arrived together.
+  const groups = new Map();
+  for (const d of due) { const k = d.zone.id + ':' + d.group; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(d); }
+  for (const [k, items] of groups) {
+    const key = cam.id + ':' + k;
+    if (now - (lastSmart.get(key) || 0) < cfg.motion.cooldownSec * 1000) continue;
+    lastSmart.set(key, now);
+    const { zone, group } = items[0], n = items.length;
+    const what = group === 'person' ? (n > 1 ? `${n} people` : 'Person') : group === 'animal' ? (n > 1 ? `${n} animals` : nice(items[0].track.label)) : group === 'vehicle' ? (n > 1 ? `${n} vehicles` : nice(items[0].track.label)) : GROUP_NAMES[group];
+    const where = zone.id === 'all' ? `at ${cam.name}` : `in ${zone.name}`;
+    const id = now.toString(36) + crypto.randomBytes(3).toString('hex');
+    const snapshot = id + '.jpg'; vault.writeFile(path.join(cfg.dataDir, 'events', cam.id, snapshot), jpeg);
+    const boxes = dets.filter(d => d.score >= 0.4 && groupOf(d.label) !== 'other').slice(0, 20).map(d => ({ label: d.label, score: +d.score.toFixed(2), box: roundBox(d.box) }));
+    const ev = { id, camId: cam.id, camName: cam.name, ts: new Date(now).toISOString(), kind: group, label: items[0].track.label, count: n, zone: zone.id === 'all' ? null : zone.name, stayedSec: zone.dwellSec ? items[0].stayedSec : undefined, score: +Math.max(...items.map(i => i.track.score)).toFixed(2), boxes, snapshot, notified: false };
+    if (settings.data.armed) {
+      ev.notified = true;
+      const linger = zone.dwellSec ? ` · there for ${items[0].stayedSec} s` : '';
+      notifier.alert({ kind: 'motion', title: `${what} ${where}`, body: `${cam.name} · ${new Date(now).toLocaleTimeString()}${linger}`, camId: cam.id, url: '/#event/' + id, tag: `smart-${cam.id}-${k}` });
+    }
+    events.data.list.unshift(ev); events.data.list = events.data.list.slice(0, 3000); events.save();
+    hub.broadcast({ type: 'event', event: ev });
+  }
+});
+const roundBox = b => ({ x: +b.x.toFixed(4), y: +b.y.toFixed(4), w: +b.w.toFixed(4), h: +b.h.toFixed(4) });
+smart.on('detections', (cam, dets, ts) => {
+  // Live labels only go to people who have this camera open.
+  const msg = JSON.stringify({ type: 'detections', camId: cam.id, ts, objects: dets.filter(d => d.score >= 0.45).slice(0, 30).map(d => ({ label: d.label, group: groupOf(d.label), score: +d.score.toFixed(2), box: roundBox(d.box) })) });
+  for (const [ws, c] of clients) if (!c.bg && c.view.page === 'cam' && (c.view.cams || []).includes(cam.id)) ws.send(msg);
+});
+smart.on('wildlife', (cam, d) => {
+  const now = Date.now(), pipe = cams.pipe(cam.id);
+  if (cam.biome === false || !cfg.biome.enabled || !pipe || now - (lastBiome.get(cam.id) || 0) < 15000) return;
+  lastBiome.set(cam.id, now); scan(cam, pipe, d.box);
 });
 const scannedGray = new Map();
 function sceneChanged(cam, pipe) {
@@ -150,7 +197,7 @@ const imageType = b => b.length > 12 && ((b[0] === 0xff && b[1] === 0xd8) || b.s
 const PUSH_HOSTS = /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w-]+\.push\.services\.mozilla\.com|web\.push\.apple\.com|[\w.-]+\.notify\.windows\.com|[\w.-]+\.push\.apple\.com)\//;
 const okPush = u => typeof u === 'string' && u.length < 2000 && PUSH_HOSTS.test(u);
 const within = (base, p) => { const r = path.resolve(base, p); return r.startsWith(path.resolve(base) + path.sep) ? r : null; };
-const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
+const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
 
 // ---------------- routes ----------------
 async function handle(req, res) {
@@ -251,6 +298,18 @@ async function handle(req, res) {
       for (const k of ['record', 'biome', 'enabled']) if (typeof b[k] === 'boolean') cam[k] = b[k];
       if (typeof b.audio === 'boolean') { if (b.audio && !b.ackAudio) return json(res, 400, { error: 'Confirm the audio-recording notice first' }); cam.audio = b.audio; }
       if (b.motion) cam.motion = { enabled: b.motion.enabled !== false, sensitivity: Math.max(1, Math.min(10, +b.motion.sensitivity || 5)), notify: b.motion.notify !== false };
+      if (b.smart && typeof b.smart === 'object') {
+        const cur = camSmart(cam), KINDS = ['person', 'vehicle', 'animal', 'package'];
+        cam.smart = {
+          enabled: typeof b.smart.enabled === 'boolean' ? b.smart.enabled : cur.enabled,
+          kinds: Array.isArray(b.smart.kinds) ? b.smart.kinds.filter(k => KINDS.includes(k)) : cur.kinds,
+          motionAlerts: typeof b.smart.motionAlerts === 'boolean' ? b.smart.motionAlerts : cur.motionAlerts,
+          minScore: Number.isFinite(+b.smart.minScore) ? Math.max(0.3, Math.min(0.9, +b.smart.minScore)) : cur.minScore,
+          zones: b.smart.zones !== undefined ? cleanZones(b.smart.zones) : cur.zones,
+        };
+        // Zones and alert choices apply instantly; no need to restart the camera.
+        if (b.smart.zones !== undefined && Object.keys(b).every(k => k === 'smart')) { settings.save(); hub.broadcast({ type: 'cameras' }); return json(res, 200, { camera: camView(cam) }); }
+      }
       settings.save();
       const old = cams.pipe(cam.id); if (old && old.device) old.device.close(4001); // phone camera reconnects with new settings
       const pipe = cams.restart(cam); pipe.motion.setSensitivity(cam.motion.sensitivity);
@@ -298,10 +357,11 @@ async function handle(req, res) {
     if (!['confirmed', 'rejected', 'unreviewed'].includes(b.status)) return json(res, 400, { error: 'Bad status' });
     const sp = biome.setStatus(mm[1], b.status); if (!sp) return json(res, 404, { error: 'Not found' }); hub.broadcast({ type: 'biome' }); return json(res, 200, { species: sp });
   }
+  if (p === '/api/smart' && m === 'GET') { if (!need()) return; return json(res, 200, detector.status()); }
   if (p === '/api/system' && m === 'GET') {
     if (!need()) return; let disk = null;
     try { const s = fs.statfsSync(cfg.dataDir); disk = { freeGB: +(s.bavail * s.bsize / 1e9).toFixed(1), totalGB: +(s.blocks * s.bsize / 1e9).toFixed(1) }; } catch {}
-    return json(res, 200, { disk, retentionDays: cfg.recording.retentionDays, speciesDb: identifier.dbStats(), models: { insect: 1021, plant: 2101, bird: 964 }, uptimeSec: Math.round(process.uptime()), ntfy: !!cfg.ntfy.url, secure: isSecure(req), encryption: vault.status() });
+    return json(res, 200, { disk, retentionDays: cfg.recording.retentionDays, speciesDb: identifier.dbStats(), models: { insect: 1021, plant: 2101, bird: 964 }, uptimeSec: Math.round(process.uptime()), ntfy: !!cfg.ntfy.url, secure: isSecure(req), encryption: vault.status(), smart: detector.status() });
   }
 
   // ---- media ----
@@ -363,10 +423,10 @@ function onUpgrade(req, socket, head) {
     if (!clients.get(ws).bg) hub.presence();
     ws.on('message', msg => {
       let d; try { d = JSON.parse(msg); } catch { return; }
-      if (d.type === 'view') { const c = clients.get(ws); c.view = { page: String(d.page || '').slice(0, 30), cams: (d.cams || []).slice(0, 16).map(String), focus: !!d.focus }; hub.presence(); }
+      if (d.type === 'view') { const c = clients.get(ws); c.view = { page: String(d.page || '').slice(0, 30), cams: (d.cams || []).slice(0, 16).map(String), focus: !!d.focus }; hub.presence(); updateWatched(); }
       if (d.type === 'ping-family' && typeof d.text === 'string') hub.broadcast({ type: 'chat', from: user.name, color: user.color, text: d.text.slice(0, 280), ts: Date.now() });
     });
-    ws.on('close', () => { const bg = clients.get(ws)?.bg; clients.delete(ws); if (!bg) hub.presence(); });
+    ws.on('close', () => { const bg = clients.get(ws)?.bg; clients.delete(ws); if (!bg) hub.presence(); updateWatched(); });
     return;
   }
   if (url.pathname === '/ws/ingest') {
@@ -391,6 +451,7 @@ function onUpgrade(req, socket, head) {
   socket.destroy();
 }
 const devices = new Set();
+function updateWatched() { const ids = new Set(); for (const c of clients.values()) if (!c.bg && c.view.page === 'cam' && c.view.focus) for (const id of c.view.cams || []) ids.add(id); smart.setWatched([...ids]); }
 wsLib.heartbeat(() => [...clients.keys(), ...devices]);
 
 // ---------------- start ----------------
