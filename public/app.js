@@ -49,6 +49,7 @@ function connect() {
       else if (m.kind === 'test') toast(m.title, m.body);
     }
     else if (m.type === 'event') { S.events.unshift(m.event); if (S.route === 'events') render(); }
+    else if (m.type === 'detections') { if (S.route === 'cam/' + m.camId) drawBoxes($('#liveBoxes'), m.objects, true); }
     else if (m.type === 'sighting') { if (S.route.startsWith('biome')) render(); if (!m.isNew) return; toast('New species spotted', `${m.species.common || m.species.scientific} · ${m.cam}`, 'sighting', () => location.hash = '#biome/' + m.species.id); }
     else if (m.type === 'armed') { S.armed = m.armed; renderArmed(); toast(m.armed ? 'Alerts armed' : 'Alerts paused', 'by ' + m.by); }
     else if (m.type === 'camstatus') { const c = S.cameras.find(c => c.id === m.id); if (c) { Object.assign(c, m); updateTileStatus(c); } }
@@ -85,19 +86,22 @@ function renderArmed() {
 $('#armed').onclick = async () => { try { const r = await api('/api/armed', { method: 'POST', body: { armed: !S.armed } }); S.armed = r.armed; renderArmed(); } catch (e) { toast('Could not change', e.message); } };
 
 // ---------------- routing ----------------
-async function loadCameras() { S.cameras = (await api('/api/cameras')).cameras; }
+async function loadCameras() {
+  const [c, sm] = await Promise.all([api('/api/cameras'), S.smart ? null : api('/api/smart').catch(() => ({ available: false }))]);
+  S.cameras = c.cameras; if (sm) S.smart = sm;
+}
 window.addEventListener('hashchange', render);
 async function render() {
   const route = location.hash.slice(1) || 'cameras';
   // stop any MJPEG streams from the previous page
   $$('img[data-live]', view).forEach(i => { i.src = ''; });
   S.route = route;
-  const tab = route.split('/')[0] === 'cam' || route.startsWith('event') ? (route.startsWith('cam') ? 'cameras' : 'events') : route.split('/')[0];
+  const tab = route.startsWith('zones') ? 'settings' : route.split('/')[0] === 'cam' || route.startsWith('event') ? (route.startsWith('cam') ? 'cameras' : 'events') : route.split('/')[0];
   $$('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   sendView();
   try {
     const [page, arg] = route.split('/');
-    const fn = { cameras: pageCameras, cam: pageCam, events: pageEvents, event: pageEvent, biome: arg ? pageSpecies : pageBiome, family: pageFamily, settings: pageSettings, identify: pageIdentify, legal: pageLegal }[page] || pageCameras;
+    const fn = { cameras: pageCameras, cam: pageCam, zones: pageZones, events: pageEvents, event: pageEvent, biome: arg ? pageSpecies : pageBiome, family: pageFamily, settings: pageSettings, identify: pageIdentify, legal: pageLegal }[page] || pageCameras;
     await fn(arg ? decodeURIComponent(arg) : undefined);
     renderPresence();
   } catch (e) { if (S.me) view.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
@@ -141,11 +145,13 @@ async function pageCam(id) {
   const [{ events }, { recordings }] = await Promise.all([api('/api/events?limit=30&cam=' + encodeURIComponent(id)), api(`/api/cameras/${encodeURIComponent(id)}/recordings`)]);
   view.innerHTML = `<div class="row spread" style="margin-bottom:10px"><div class="row"><a class="btn ghost" href="#cameras" aria-label="Back">←</a><h1 style="margin:0">${esc(c.name)}</h1><span class="dot ${esc(c.status)}"></span></div>
       <div class="watchers" data-watchers="${esc(c.id)}" data-full="1"></div></div>
-    <div class="viewer">${c.status === 'live' ? `<img data-live src="/api/cameras/${esc(c.id)}/live" alt="Live view of ${esc(c.name)}">` : `<div class="empty" style="border:0">Not live right now.</div>`}</div>
+    <div class="viewer">${c.status === 'live' ? `<div class="frame"><img data-live src="/api/cameras/${esc(c.id)}/live" alt="Live view of ${esc(c.name)}"><div class="boxes" id="liveBoxes" aria-hidden="true"></div></div>` : `<div class="empty" style="border:0">Not live right now.</div>`}</div>
+    ${S.smart && S.smart.available && c.smart.enabled ? '<p class="small muted" id="liveSaid" aria-live="polite" style="margin:8px 0 0">Watching for people, vehicles and animals…</p>' : ''}
     <div class="row" style="margin:12px 0"><button class="btn" id="snap"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Snapshot</button>
-      <button class="btn" id="ident"><svg viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/></svg>What's in view?</button></div>
+      <button class="btn" id="ident"><svg viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/></svg>What's in view?</button>
+      ${S.me.role === 'admin' && S.smart && S.smart.available ? `<a class="btn" href="#zones/${esc(c.id)}"><svg viewBox="0 0 24 24"><path d="M4 6l7-2 9 4-2 11-12 1z"/></svg>Zones (${c.smart.zones.length})</a>` : ''}</div>
     <div id="identOut"></div>
-    <div class="journal" style="margin-top:6px"><section><h2>Recent motion</h2><div class="events">${events.length ? events.map(evHtml).join('') : '<p class="muted">No motion recorded yet.</p>'}</div></section>
+    <div class="journal" style="margin-top:6px"><section><h2>Recent alerts</h2><div class="events">${events.length ? events.map(evHtml).join('') : '<p class="muted">No motion recorded yet.</p>'}</div></section>
     <section><h2>Recordings</h2><video id="player" controls playsinline preload="none" hidden></video><div class="stack small" style="margin-top:8px">${recordings.length ? recordings.slice(0, 60).map(r => `<button class="btn ghost" style="width:100%;justify-content:space-between" data-rec="${esc(r.file)}"><span>${esc(fmtDay(r.start))} · ${esc(fmtTime(r.start))}–${esc(fmtTime(r.end))}</span><span class="mono">${(r.size / 1e6).toFixed(0)} MB</span></button>`).join('') : `<p class="muted">${c.record ? 'Recording starts as soon as the camera is live.' : 'Recording is off for this camera.'}</p>`}</div></section></div>`;
   $('#snap').onclick = () => window.open(`/api/cameras/${encodeURIComponent(id)}/snapshot`, '_blank');
   $('#ident').onclick = async () => { $('#identOut').innerHTML = '<p class="muted">Looking closely…</p>'; try { const r = await api(`/api/cameras/${encodeURIComponent(id)}/identify`, { method: 'POST' }); showCandidates($('#identOut'), r.candidates); } catch (e) { $('#identOut').innerHTML = `<p class="err">${esc(e.message)}</p>`; } };
@@ -153,23 +159,91 @@ async function pageCam(id) {
   bindEvClicks();
 }
 
+// ---------------- zones (draw areas on the picture) ----------------
+const ZONE_COLORS = ['#c9f27a', '#7cc6e8', '#f6c453', '#ff99c8', '#c77dff', '#ff7a59', '#90dbf4', '#b5e48c'];
+const PRESETS = { 'Whole picture': [[0, 0], [1, 0], [1, 1], [0, 1]], 'Left half': [[0, 0], [0.5, 0], [0.5, 1], [0, 1]], 'Right half': [[0.5, 0], [1, 0], [1, 1], [0.5, 1]], 'Bottom half': [[0, 0.5], [1, 0.5], [1, 1], [0, 1]], 'Middle': [[0.25, 0.2], [0.75, 0.2], [0.75, 1], [0.25, 1]] };
+async function pageZones(id) {
+  await loadCameras();
+  const c = S.cameras.find(x => x.id === id); if (!c) throw new Error('Camera not found');
+  if (S.me.role !== 'admin') throw new Error('Only the family admin can change zones');
+  let zones = c.smart.zones.map(z => ({ ...z })), drawing = null;
+  const save = async () => { const r = await api('/api/cameras/' + id, { method: 'PATCH', body: { smart: { zones } } }); zones = r.camera.smart.zones; toast('Zones saved', c.name); paint(); };
+  view.innerHTML = `<div class="row" style="margin-bottom:8px"><a class="btn ghost" href="#settings" aria-label="Back to settings">←</a><h1 style="margin:0">Zones · ${esc(c.name)}</h1></div>
+    <p class="muted small">Zones are areas of the picture, like the driveway or the back door. Alerts only come from people, vehicles or animals whose feet or wheels are inside a zone. With no zones, the whole picture counts.</p>
+    <div class="viewer"><div class="frame" id="zf"><img id="zimg" src="/api/cameras/${esc(id)}/snapshot?t=${Date.now()}" alt="Current picture from ${esc(c.name)}"><svg id="zsvg" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"></svg><div class="boxes" id="zlabels" aria-hidden="true"></div></div></div>
+    <div id="zctl" class="stack" style="margin-top:12px"></div>
+    <section class="card stack" style="margin-top:14px"><h2>Your zones</h2><div id="zlist" class="stack"></div></section>`;
+  const img = $('#zimg'); img.onerror = () => { $('#zf').innerHTML = '<div class="empty" style="border:0">No picture yet. Zones can be drawn once the camera is live.</div>'; };
+  const pt = e => { const r = img.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+  $('#zf').addEventListener('click', e => { if (!drawing) return; drawing.push(pt(e).map(v => +v.toFixed(4))); paint(); });
+  function paint() {
+    const poly = (pts, col, dash) => `<polygon points="${pts.map(p => p[0] * 1000 + ',' + p[1] * 1000).join(' ')}" fill="${col}33" stroke="${col}" stroke-width="3" vector-effect="non-scaling-stroke" ${dash ? 'stroke-dasharray="8 6"' : ''}/>`;
+    $('#zsvg').innerHTML = zones.map((z, i) => poly(z.points, ZONE_COLORS[i % 8])).join('') + (drawing && drawing.length ? (drawing.length > 2 ? poly(drawing, '#ffffff', true) : '') + drawing.map(p => `<circle cx="${p[0] * 1000}" cy="${p[1] * 1000}" r="9" fill="#fff" vector-effect="non-scaling-stroke"/>`).join('') : '');
+    $('#zlabels').innerHTML = zones.map((z, i) => { const x = Math.min(...z.points.map(p => p[0])), y = Math.min(...z.points.map(p => p[1])); return `<div class="bx" style="left:${x * 100}%;top:${y * 100}%;border:0;--c:${ZONE_COLORS[i % 8]}"><span>${esc(z.name)}</span></div>`; }).join('');
+    $('#zctl').innerHTML = drawing
+      ? `<div class="card stack" style="border-color:var(--lime)"><b>Tap the picture to place the corners of the zone (${drawing.length} so far).</b><div class="row"><button class="btn primary" id="zdone" ${drawing.length < 3 ? 'disabled' : ''}>Done</button><button class="btn" id="zundo" ${drawing.length ? '' : 'disabled'}>Undo corner</button><button class="btn ghost" id="zcancel">Cancel</button></div></div>`
+      : `<div class="row"><button class="btn primary" id="zadd" ${zones.length >= 8 ? 'disabled' : ''}>Draw a new zone</button><label class="f" style="flex-direction:row;align-items:center;gap:8px">or add<select id="zpreset">${Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('')}</select><button class="btn" id="zaddp" ${zones.length >= 8 ? 'disabled' : ''}>Add</button></label></div>`;
+    $('#zlist').innerHTML = zones.length ? zones.map((z, i) => `<form class="card stack" data-z="${i}" style="border-left:6px solid ${ZONE_COLORS[i % 8]}">
+        <label class="f">Name<input type="text" name="name" value="${esc(z.name)}" maxlength="30"></label>
+        <div class="small muted">Alert when these are inside:</div>
+        <div class="row">${[['person', 'People'], ['vehicle', 'Vehicles'], ['animal', 'Animals'], ['package', 'Bags & packages']].map(([v, l]) => `<label class="check"><input type="checkbox" name="kind" value="${v}" ${z.kinds.includes(v) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+        <label class="f">Only alert if they stay at least<select name="dwell">${[[0, 'No wait: alert straight away'], [5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute'], [300, '5 minutes']].map(([v, l]) => `<option value="${v}" ${+z.dwellSec === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="row"><button class="btn primary">Save</button><button type="button" class="btn danger" data-zdel="${i}">Delete zone</button></div></form>`).join('')
+      : '<p class="muted small">No zones yet, so the whole picture counts.</p>';
+    if ($('#zadd')) $('#zadd').onclick = () => { drawing = []; paint(); toast('Tap the corners of the area', 'Then tap Done'); };
+    if ($('#zaddp')) $('#zaddp').onclick = () => { const n = $('#zpreset').value; zones.push({ name: n, points: PRESETS[n], kinds: ['person'], dwellSec: 0 }); save(); };
+    if ($('#zdone')) $('#zdone').onclick = () => { zones.push({ name: `Zone ${zones.length + 1}`, points: drawing, kinds: ['person'], dwellSec: 0 }); drawing = null; save().then(() => { const f = $$('#zlist form').pop(); f && f.name.focus(); f && f.name.select(); }); };
+    if ($('#zundo')) $('#zundo').onclick = () => { drawing.pop(); paint(); };
+    if ($('#zcancel')) $('#zcancel').onclick = () => { drawing = null; paint(); };
+    $$('#zlist form').forEach(f => {
+      f.onsubmit = e => { e.preventDefault(); const z = zones[+f.dataset.z]; z.name = f.name.value.trim() || z.name; z.kinds = $$('input[name=kind]', f).filter(x => x.checked).map(x => x.value); if (!z.kinds.length) return toast('Pick at least one', 'People, vehicles, animals or packages'); z.dwellSec = +f.dwell.value; save(); };
+      $('[data-zdel]', f).onclick = () => { if (!confirm(`Delete the zone "${zones[+f.dataset.z].name}"?`)) return; zones.splice(+f.dataset.z, 1); save(); };
+    });
+  }
+  paint();
+}
+
 // ---------------- motion events ----------------
+const KIND = { person: ['Person', 'People'], vehicle: ['Vehicle', 'Vehicles'], animal: ['Animal', 'Animals'], package: ['Bag or package', 'Bags or packages'] };
+const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+function evTitle(e) {
+  if (!e.kind) return 'Motion';
+  const what = e.count > 1 ? `${e.count} ${KIND[e.kind][1].toLowerCase()}` : (e.kind === 'person' ? 'Person' : cap(e.label) || KIND[e.kind][0]);
+  return `${what} ${e.zone ? 'in ' + e.zone : 'seen'}`;
+}
 const evHtml = (e, i = 0) => `<a class="ev" href="#event/${esc(e.id)}" style="animation-delay:${Math.min(i, 10) * 40}ms;text-decoration:none;color:inherit">${e.snapshot ? `<img loading="lazy" src="/media/events/${esc(e.camId)}/${esc(e.snapshot)}" alt="">` : '<img alt="">'}
-  <div><div><b>${esc(e.camName)}</b> ${e.notified ? '<span class="pill warn">alerted</span>' : ''}</div><div class="t">${esc(fmtTime(e.ts))} · ${esc(ago(e.ts))}</div></div></a>`;
+  <div><div><b>${esc(evTitle(e))}</b> <span class="muted">· ${esc(e.camName)}</span> ${e.notified ? '<span class="pill warn">alerted</span>' : ''}</div><div class="t">${esc(fmtTime(e.ts))} · ${esc(ago(e.ts))}${e.stayedSec ? ` · stayed ${e.stayedSec} s` : ''}</div></div></a>`;
+const BOX_COLORS = { person: '#c9f27a', vehicle: '#7cc6e8', animal: '#f6c453', package: '#ff99c8' };
+const groupOfLabel = l => ({ person: 'person', bicycle: 'vehicle', car: 'vehicle', motorcycle: 'vehicle', bus: 'vehicle', truck: 'vehicle', boat: 'vehicle', train: 'vehicle', airplane: 'vehicle', bird: 'animal', cat: 'animal', dog: 'animal', horse: 'animal', sheep: 'animal', cow: 'animal', bear: 'animal', elephant: 'animal', zebra: 'animal', giraffe: 'animal', backpack: 'package', handbag: 'package', suitcase: 'package' })[l] || 'other';
+/** Boxes as percent-positioned labels over a picture (works at any size, readable at any zoom). */
+function drawBoxes(el, objs, live) {
+  if (!el) return;
+  const shown = (objs || []).filter(o => groupOfLabel(o.label) !== 'other');
+  el.innerHTML = shown.map(o => { const g = groupOfLabel(o.label), b = o.box; return `<div class="bx" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;--c:${BOX_COLORS[g]}"><span>${esc(cap(o.label))} ${Math.round(o.score * 100)}%</span></div>`; }).join('');
+  if (live) {
+    const said = $('#liveSaid'); if (!said) return;
+    const n = {}; for (const o of shown) { const k = o.label; n[k] = (n[k] || 0) + 1; }
+    const txt = Object.keys(n).length ? 'In view: ' + Object.entries(n).map(([k, v]) => `${v} ${k}${v > 1 ? 's' : ''}`).join(', ') : 'Nobody in view.';
+    if (said.textContent !== txt) said.textContent = txt;
+    clearTimeout(el._t); el._t = setTimeout(() => { el.innerHTML = ''; if (said) said.textContent = 'Nobody in view.'; }, 4000);
+  }
+}
 function bindEvClicks() {}
 async function pageEvents() {
   const { events } = await api('/api/events?limit=200'); S.events = events;
-  let html = '<h1>Motion</h1>', last = '';
-  if (!events.length) html += '<div class="empty">Nothing yet. Motion events show up here with a snapshot and a link to the recording.</div>';
+  let html = '<h1>Alerts</h1>', last = '';
+  if (!events.length) html += '<div class="empty">Nothing yet. Alerts show up here with a snapshot and a link to the recording.</div>';
   events.forEach((e, i) => { const d = fmtDay(e.ts); if (d !== last) { html += `<div class="day">${esc(d)}</div>`; last = d; } html += evHtml(e, i); });
   view.innerHTML = `<div class="events">${html}</div>`;
 }
 async function pageEvent(id) {
   const { events } = await api('/api/events?limit=500'); const e = events.find(x => x.id === id); if (!e) throw new Error('That event has expired');
-  view.innerHTML = `<div class="row" style="margin-bottom:10px"><a class="btn ghost" href="#events" aria-label="Back to motion">←</a><h1 style="margin:0">${esc(e.camName)}</h1></div>
-    <p class="mono muted">${esc(new Date(e.ts).toLocaleString())}</p>
+  view.innerHTML = `<div class="row" style="margin-bottom:10px"><a class="btn ghost" href="#events" aria-label="Back to alerts">←</a><h1 style="margin:0">${esc(evTitle(e))}</h1></div>
+    <p class="mono muted">${esc(e.camName)} · ${esc(new Date(e.ts).toLocaleString())}${e.stayedSec ? ` · stayed ${e.stayedSec} s` : ''}</p>
+    ${e.kind && e.snapshot ? `<div class="viewer" style="margin-bottom:12px"><div class="frame"><img src="/media/events/${esc(e.camId)}/${esc(e.snapshot)}" alt="What the camera saw: ${esc(evTitle(e))}"><div class="boxes" id="evBoxes" aria-hidden="true"></div></div></div>` : ''}
     ${e.segment ? `<video controls playsinline autoplay muted src="/media/rec/${esc(e.camId)}/${esc(e.segment.file)}#t=${e.segment.offset}"></video>` : e.snapshot ? `<img class="refimg" src="/media/events/${esc(e.camId)}/${esc(e.snapshot)}" alt="Snapshot">` : ''}
     <div class="row" style="margin-top:12px"><a class="btn" href="#cam/${esc(e.camId)}">Open live view</a>${e.snapshot ? `<a class="btn ghost" href="/media/events/${esc(e.camId)}/${esc(e.snapshot)}" download>Download snapshot</a>` : ''}</div>`;
+  if (e.boxes) drawBoxes($('#evBoxes'), e.boxes);
 }
 
 // ---------------- biome ----------------
@@ -314,6 +388,16 @@ async function pageSettings() {
   $('#delme').onclick = async () => { if (!confirm('Delete your account? This can\'t be undone. Camera footage belongs to the household and stays.')) return; try { await api('/api/me', { method: 'DELETE' }); S.me = null; boot(); } catch (e) { toast('Not deleted', e.message); } };
   if (me.role === 'admin') bindCameraAdmin();
 }
+function smartAdminHtml(c) {
+  if (!S.smart || !S.smart.available) return `<div class="setting" style="display:block"><b>Smart detection</b><div class="small muted">Tell people, vehicles and animals apart, and set zones. It isn't installed yet: on the server run <span class="mono">npm run smart-detection</span>, then restart Spectacle. It runs on your server only.</div></div>`;
+  const k = c.smart.kinds;
+  return `<fieldset class="setting" style="display:block;border:0;padding:12px 0;margin:0"><legend style="font-weight:700;padding:0">Smart detection <span class="pill ok">${esc(S.smart.model)}</span></legend>
+    <label class="check" style="margin-top:6px"><input type="checkbox" name="smartOn" ${c.smart.enabled ? 'checked' : ''}> Use smart detection on this camera</label>
+    <div class="small muted" style="margin:8px 0 4px">Alert me when it sees:</div>
+    <div class="row">${[['person', 'People'], ['vehicle', 'Vehicles'], ['animal', 'Animals'], ['package', 'Bags & packages']].map(([v, l]) => `<label class="check"><input type="checkbox" name="kind" value="${v}" ${k.includes(v) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+    <label class="check" style="margin-top:8px"><input type="checkbox" name="anyMotion" ${c.smart.motionAlerts ? 'checked' : ''}> Also alert on any other movement (shadows, wind, rain may trigger it)</label>
+    <div class="row" style="margin-top:10px"><a class="btn" href="#zones/${esc(c.id)}">Draw zones (${c.smart.zones.length})</a><span class="small muted">${c.smart.zones.length ? 'Alerts only come from inside your zones.' : 'No zones: the whole picture counts.'}</span></div></fieldset>`;
+}
 function camerasAdminHtml() {
   return `<section class="card"><h2>Cameras</h2><div class="stack" id="camList">${S.cameras.map(c => `<details class="card" style="padding:12px 14px"><summary class="row spread" style="cursor:pointer"><span><span class="dot ${esc(c.status)}"></span> <b>${esc(c.name)}</b> <span class="muted small">${c.type === 'rtsp' ? 'IP camera' : 'Phone / webcam'}</span></span></summary>
       <form class="stack" data-edit="${esc(c.id)}" style="margin-top:12px">
@@ -323,6 +407,7 @@ function camerasAdminHtml() {
         <div class="setting"><span>Motion detection</span><label class="switch"><input type="checkbox" name="motionOn" ${c.motion.enabled ? 'checked' : ''}><span></span></label></div>
         <div class="setting"><span>Send motion alerts</span><label class="switch"><input type="checkbox" name="notify" ${c.motion.notify !== false ? 'checked' : ''}><span></span></label></div>
         <label class="f">Motion sensitivity: <output>${c.motion.sensitivity}</output><input type="range" name="sens" min="1" max="10" value="${c.motion.sensitivity}"></label>
+        ${smartAdminHtml(c)}
         <div class="setting"><span>Bug & flower log</span><label class="switch"><input type="checkbox" name="biome" ${c.biome ? 'checked' : ''}><span></span></label></div>
         ${c.type === 'rtsp' ? `<div class="setting"><div><span>Record audio</span><div class="small muted">Off by default. Recording conversations without consent is illegal in many places.</div></div><label class="switch"><input type="checkbox" name="audio" ${c.audio ? 'checked' : ''}><span></span></label></div>` : ''}
         <div class="row"><button class="btn primary">Save</button><button type="button" class="btn danger" data-del="${esc(c.id)}">Remove camera</button></div>
@@ -342,6 +427,7 @@ function bindCameraAdmin() {
   $$('[data-edit]').forEach(form => form.onsubmit = async e => {
     e.preventDefault(); const c = S.cameras.find(x => x.id === form.dataset.edit);
     const body = { name: form.name.value, record: form.record.checked, biome: form.biome.checked, motion: { enabled: form.motionOn.checked, notify: form.notify.checked, sensitivity: +form.sens.value } };
+    if (form.smartOn) body.smart = { enabled: form.smartOn.checked, kinds: $$('input[name=kind]', form).filter(x => x.checked).map(x => x.value), motionAlerts: form.anyMotion.checked };
     if (form.url && form.url.value && !form.url.value.startsWith('(saved')) body.url = form.url.value;
     if (form.audio && form.audio.checked !== c.audio) { if (form.audio.checked && !confirm('Audio recording: in many US states and countries, recording a conversation needs everyone\'s consent. Only enable this if everyone who could be heard has agreed. Enable?')) { form.audio.checked = false; } else { body.audio = form.audio.checked; body.ackAudio = true; } }
     try { await api('/api/cameras/' + c.id, { method: 'PATCH', body }); toast('Saved', c.name); } catch (err) { toast('Not saved', err.message); }

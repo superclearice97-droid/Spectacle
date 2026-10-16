@@ -17,7 +17,7 @@ fs.writeFileSync(cfgFile, JSON.stringify({ dataDir: path.join(tmp, 'data'), http
 const BASE = `http://127.0.0.1:${PORT}`;
 let cookie = '';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const ok = (c, m) => { if (!c) throw new Error('FAIL: ' + m); console.log('  ✓ ' + m); };
+const ok = (c, m) => { if (!c) throw new Error('FAIL: ' + m); console.log('  ✓ ' + m); if (process.env.GITHUB_ACTIONS) console.log('::notice title=smart detection::' + m); };
 async function call(p, body, method) {
   const r = await fetch(BASE + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'X-Spectacle': '1', 'Content-Type': 'application/json', Cookie: cookie }, body: body ? JSON.stringify(body) : undefined });
   const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];

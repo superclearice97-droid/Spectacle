@@ -54,6 +54,21 @@ The Apache License 2.0 text is in models/LICENSE-coral-test-data.txt.
 The app's web screens run in Android System WebView (part of Android, not bundled).
 
 ------------------------------------------------------------------------------
+4b. Smart detection (optional; installed by `npm run smart-detection` into addons/, not bundled)
+------------------------------------------------------------------------------
+D-FINE object detector — Copyright (c) 2024 The D-FINE Authors — Apache License 2.0
+  https://github.com/Peterande/D-FINE (commit 956d1709314c2c6a4df6f34de232054578a7449f)
+  Based on RT-DETR (Copyright (c) 2023 lyuwenyu, Apache-2.0); HGNetV2 backbone (PaddlePaddle authors, Apache-2.0).
+  Spectacle downloads ONNX conversions (format change only) of the authors' Objects365+COCO checkpoints
+  from https://github.com/superclearice97-droid/spectacle/releases/tag/detector-models-v1
+  Training data: Objects365 (CC BY 4.0, https://www.objects365.org); COCO 2017 annotations (CC BY 4.0,
+  https://cocodataset.org). The licence travels with the model as addons/MODEL-LICENSE.txt.
+ONNX Runtime (onnxruntime-node 1.24.3) — Copyright (c) Microsoft Corporation — MIT License
+  https://github.com/microsoft/onnxruntime
+Additional test images (test-images/grace_hopper.jpg, cat.jpg, kite_and_cold.jpg) come from
+  https://github.com/google-coral/test_data (Apache License 2.0), used only by the tests.
+
+------------------------------------------------------------------------------
 5. External programs (not bundled; installed by your system package manager)
 ------------------------------------------------------------------------------
 FFmpeg (https://ffmpeg.org) — LGPL 2.1+/GPL 2+ depending on build. Spectacle
