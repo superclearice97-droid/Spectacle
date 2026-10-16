@@ -1,0 +1,79 @@
+name: Smart detection models
+
+# Converts the Apache-2.0 D-FINE detector (Objects365 → COCO weights) to ONNX, checks it on test pictures,
+# and publishes the files on a "detector-models-v1" pre-release that install.sh downloads from.
+on:
+  push:
+    branches: ['**']
+    paths: ['tools/detector/**', '.github/workflows/detector-models.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  DFINE_COMMIT: 956d1709314c2c6a4df6f34de232054578a7449f
+  TAG: detector-models-v1
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - size: s
+            config: configs/dfine/objects365/dfine_hgnetv2_s_obj2coco.yml
+            weights: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_s_obj2coco.pth
+          - size: l
+            config: configs/dfine/objects365/dfine_hgnetv2_l_obj2coco.yml
+            weights: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_l_obj2coco_e25.pth
+          - size: x
+            config: configs/dfine/objects365/dfine_hgnetv2_x_obj2coco.yml
+            weights: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_x_obj2coco.pth
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Get D-FINE (pinned)
+        run: |
+          git clone https://github.com/Peterande/D-FINE.git dfine
+          git -C dfine checkout "$DFINE_COMMIT"
+      - name: Install export tools (CPU only)
+        run: |
+          pip install --quiet torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet onnx==1.17.0 onnxruntime==1.20.1 pillow numpy pyyaml scipy faster-coco-eval loguru transformers calflops tensorboard
+      - name: Download weights
+        run: curl -fsSL -o weights.pth "${{ matrix.weights }}" && sha256sum weights.pth
+      - name: Export to ONNX
+        run: python tools/detector/export.py --dfine dfine --config "${{ matrix.config }}" --weights weights.pth --out "dfine-${{ matrix.size }}.onnx"
+      - name: Check it sees people, a cat, a bird and kites
+        run: python tools/detector/check.py "dfine-${{ matrix.size }}.onnx" test-images
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dfine-${{ matrix.size }}
+          path: dfine-${{ matrix.size }}.onnx
+
+  publish:
+    needs: export
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish pre-release (never marked "latest", so the app download link is unaffected)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          sha256sum dfine-*.onnx | tee SHA256SUMS
+          cp ../tools/detector/MODEL-LICENSE.txt .
+          gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" dfine-*.onnx SHA256SUMS MODEL-LICENSE.txt -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Smart detection models (D-FINE)" \
+            --notes "Object detector files for Spectacle's optional smart detection. Downloaded by install.sh; you don't need to open these. D-FINE © The D-FINE Authors, Apache-2.0. See MODEL-LICENSE.txt."
