@@ -191,10 +191,12 @@ function renderTalk() {
 async function openTalk(c) {
   if (!window.SpTalk || !SpTalk.supported()) return toast('Talking needs a newer browser', 'Use Chrome, Firefox or the Spectacle app');
   try {
-    await SpTalk.audio(); // unlocked by this tap
+    // Connect first (the camera starts its chime and notice straight away), then set up sound.
     const sock = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/talk?cam=' + encodeURIComponent(c.id));
     sock.binaryType = 'arraybuffer';
-    T = { camId: c.id, sock, spk: await SpTalk.speaker(1.2), mic: null, speaking: false, vol: 1.2 };
+    const queued = [];
+    T = { camId: c.id, sock, spk: { push: b => queued.push(b), volume() {}, stop() {} }, mic: null, speaking: false, vol: 1.2 };
+    SpTalk.speaker(1.2).then(spk => { if (!T || T.sock !== sock) return spk.stop(); T.spk = spk; queued.splice(-10).forEach(b => spk.push(b)); }).catch(e => toast('No sound on this device', e.message));
     sock.onmessage = e => {
       if (e.data instanceof ArrayBuffer) { T && T.spk.push(e.data); return; }
       const m = JSON.parse(e.data);

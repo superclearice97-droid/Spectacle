@@ -6,7 +6,8 @@
   /** Must first be called from a tap (browsers only allow sound after the person interacts). */
   async function audio() {
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    if (ctx.state === 'suspended') await ctx.resume();
+    // Never hang waiting for a sound device (no speaker, Bluetooth glitch): carry on after 1.5 s.
+    if (ctx.state === 'suspended') await Promise.race([ctx.resume(), new Promise(r => setTimeout(r, 1500))]);
     if (!loaded) loaded = ctx.audioWorklet.addModule('/audio-worklets.js');
     await loaded;
     return ctx;

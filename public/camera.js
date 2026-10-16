@@ -73,7 +73,7 @@ async function onTalk(m) {
     call = { opening: true };
     $('#talkbar').hidden = false; $('#dim').classList.remove('on'); bridge && bridge.dim(false);
     try {
-      await SpTalk.chime('talk');
+      SpTalk.chime('talk').catch(() => {});
       const sock = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/cam-audio?token=' + encodeURIComponent(token));
       sock.binaryType = 'arraybuffer';
       const spk = await SpTalk.speaker(1.6);

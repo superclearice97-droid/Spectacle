@@ -64,8 +64,9 @@ try:
         host = "127.0.0.1"
         camctx = b.new_context(permissions=["camera", "microphone"], viewport={"width": 390, "height": 760}, device_scale_factor=2)
         camera = camctx.new_page()
-        errs = []
+        errs = []; logs = []
         camera.on("pageerror", lambda e: errs.append("camera: " + str(e)))
+        camera.on("console", lambda m: logs.append("camera console: " + m.text))
         camera.goto(f"{BASE}/camera#token={token}")
         camera.check("#ack"); camera.click("#start")
         for _ in range(40):
@@ -80,7 +81,7 @@ try:
         def family(name, ck):
             ctx = b.new_context(permissions=["microphone"], viewport={"width": 390, "height": 844}, device_scale_factor=2)
             ctx.add_cookies([{"name": ck.split("=")[0], "value": ck.split("=", 1)[1], "domain": host, "path": "/"}])
-            pg = ctx.new_page(); pg.on("pageerror", lambda e: errs.append(name + ": " + str(e)))
+            pg = ctx.new_page(); pg.on("pageerror", lambda e: errs.append(name + ": " + str(e))); pg.on("console", lambda m: logs.append(name + " console: " + m.text))
             pg.goto(f"{BASE}/#cameras"); pg.wait_for_timeout(1500)
             pg.evaluate("""() => { window.__rx = 0; const o = SpTalk.speaker; SpTalk.speaker = async v => { const s = await o(v); const p = s.push; s.push = b => { window.__rx += b.byteLength; p(b); }; return s; }; }""")
             return pg
@@ -137,7 +138,13 @@ try:
         ok(not errs, "no page errors" + ("" if not errs else ": " + "; ".join(errs[:3])))
         b.close()
 except Exception as e:
-    ok(False, f"test crashed: {e}")
+    ok(False, f"test crashed: {str(e)[:300]}")
+    try:
+        for l in (errs + logs)[-25:]: ok(False, "log: " + l[:250])
+        ok(False, "camera talkbar: " + camera.evaluate("document.querySelector('#talkbar').outerHTML")[:300])
+        ok(False, "family toasts: " + jordan.evaluate("[...document.querySelectorAll('.toast')].map(t => t.innerText).join(' | ')")[:300])
+        ok(False, "server talk state: " + json.dumps(call("/api/cameras")["cameras"][0].get("talk"))[:300])
+    except Exception as e2: ok(False, f"(diagnostics failed: {e2})")
     print(srv.stdout.read1(20000).decode(errors="ignore") if srv.stdout else "")
 finally:
     srv.terminate()
