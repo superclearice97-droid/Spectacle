@@ -136,6 +136,8 @@ try:
         jordan.goto(f"{BASE}/#cam/{cam['id']}"); jordan.wait_for_timeout(1500)
         ok(jordan.locator("#talkBox").is_hidden(), "turning talk off hides the call button")
         ok(not errs, "no page errors" + ("" if not errs else ": " + "; ".join(errs[:3])))
+        if fails:
+            for l in (errs + logs)[-20:]: print(f"::warning title=browser log::{l[:250]}"); print("   log:", l[:250])
         b.close()
 except Exception as e:
     ok(False, f"test crashed: {str(e)[:300]}")

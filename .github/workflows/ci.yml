@@ -60,5 +60,8 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install --quiet playwright==1.55.0 && python -m playwright install --with-deps chromium
+          # A virtual sound card, like a real phone or computer has (GitHub's machines have none).
+          sudo apt-get install -y pulseaudio
+          pulseaudio -D --exit-idle-time=-1 && pactl load-module module-null-sink sink_name=virtual && pactl set-default-sink virtual
       - name: Doorbell + two-way talk in real Chromium (simulated mic and camera)
         run: python test/talk_e2e.py
