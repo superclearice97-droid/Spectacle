@@ -10,7 +10,25 @@ if (!window.isSecureContext || !navigator.mediaDevices) { $('#err').textContent 
 $('#ack').onchange = e => { $('#start').disabled = !e.target.checked; };
 $('#start').onclick = () => start().catch(e => { $('#err').textContent = e.message; });
 $('#stop').onclick = () => { running = false; teardown(); location.reload(); };
-$('#flip').onclick = async () => { $('#facing').value = $('#facing').value === 'user' ? 'environment' : 'user'; teardown(); await start(); };
+$('#flip').onclick = async () => {
+  const pick = $('#pick'), n = pick.options.length;
+  if (pick.value && n > 2) pick.selectedIndex = pick.selectedIndex % (n - 1) + 1;   // step through the chosen cameras
+  else $('#facing').value = $('#facing').value === 'user' ? 'environment' : 'user';
+  teardown(); await start();
+};
+// Computers and some phones have several cameras (USB webcams, capture cards, virtual cameras): let the user pick one.
+async function listCameras() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  const cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(d => d.kind === 'videoinput');
+  let saved = ''; try { saved = localStorage.getItem('sp_cam_device') || ''; } catch {}
+  const pick = $('#pick'), cur = pick.value || saved;
+  pick.innerHTML = '<option value="">Any (use the lens above)</option>' + cams.map(() => "<option></option>").join('');
+  cams.forEach((d, i) => { const o = pick.options[i + 1]; o.value = d.deviceId; o.textContent = d.label || `Camera ${i + 1}`; });
+  if ([...pick.options].some(o => o.value === cur)) pick.value = cur;
+  $('#pickWrap').hidden = cams.length < 2 || !cams.some(d => d.deviceId);
+}
+listCameras();
+navigator.mediaDevices?.addEventListener?.('devicechange', listCameras);
 // In the Android app, "Dim screen" also turns the backlight right down.
 const bridge = window.SpectacleAndroid;
 $('#dimBtn').onclick = () => { $('#dim').classList.add('on'); bridge && bridge.dim(true); };
@@ -24,8 +42,11 @@ async function start() {
   running = true;
   // Unlock sound now (browsers need a tap first), so a doorbell chime or a family member's voice can play later.
   if (window.SpTalk && SpTalk.supported()) SpTalk.audio().catch(() => {});
-  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: $('#facing').value, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 20 } } });
+  const device = $('#pick').value;
+  try { localStorage.setItem('sp_cam_device', device); } catch {}
+  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...(device ? { deviceId: { exact: device } } : { facingMode: $('#facing').value }), width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 20 } } });
   $('#v').srcObject = stream;
+  listCameras();   // names become available once camera permission is granted
   $('#setup').hidden = true; $('#cam').hidden = false;
   try { wake = await navigator.wakeLock.request('screen'); } catch {}
   connect();

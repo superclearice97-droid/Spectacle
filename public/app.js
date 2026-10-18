@@ -480,10 +480,10 @@ function smartAdminHtml(c) {
     <div class="row" style="margin-top:10px"><a class="btn" href="#zones/${esc(c.id)}">Draw zones (${c.smart.zones.length})</a><span class="small muted">${c.smart.zones.length ? 'Alerts only come from inside your zones.' : 'No zones: the whole picture counts.'}</span></div></fieldset>`;
 }
 function camerasAdminHtml() {
-  return `<section class="card"><h2>Cameras</h2><div class="stack" id="camList">${S.cameras.map(c => `<details class="card" style="padding:12px 14px"><summary class="row spread" style="cursor:pointer"><span><span class="dot ${esc(c.status)}"></span> <b>${esc(c.name)}</b> <span class="muted small">${c.type === 'rtsp' ? 'IP camera' : 'Phone / webcam'}</span></span></summary>
+  return `<section class="card"><h2>Cameras</h2><div class="stack" id="camList">${S.cameras.map(c => `<details class="card" style="padding:12px 14px"><summary class="row spread" style="cursor:pointer"><span><span class="dot ${esc(c.status)}"></span> <b>${esc(c.name)}</b> <span class="muted small">${c.type === 'rtsp' ? 'IP camera' : c.type === 'device' ? 'USB camera' : 'Phone / webcam'}</span></span></summary>
       <form class="stack" data-edit="${esc(c.id)}" style="margin-top:12px">
         <label class="f">Name<input type="text" name="name" value="${esc(c.name)}" maxlength="40"></label>
-        ${c.type === 'rtsp' ? `<label class="f">Stream address<input type="url" name="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1" ${c.hasUrl ? 'value="(saved — leave to keep)"' : ''}></label>` : `<div class="row"><button type="button" class="btn" data-pair="${esc(c.id)}">Get pairing link</button><span class="small muted">Open it on the phone that will be the camera.</span></div><div data-pairout="${esc(c.id)}"></div>`}
+        ${c.type === 'device' ? `<p class="small muted">Connected camera: <b>${esc(c.deviceName || 'USB camera')}</b> <span class="mono">${esc(c.device)}</span>. To use a different one, add it as a new camera.</p>` : c.type === 'rtsp' ? `<label class="f">Stream address<input type="url" name="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1" ${c.hasUrl ? 'value="(saved — leave to keep)"' : ''}></label>` : `<div class="row"><button type="button" class="btn" data-pair="${esc(c.id)}">Get pairing link</button><span class="small muted">Open it on the phone that will be the camera.</span></div><div data-pairout="${esc(c.id)}"></div>`}
         <div class="setting"><span>Record 24/7</span><label class="switch"><input type="checkbox" name="record" ${c.record ? 'checked' : ''}><span></span></label></div>
         <div class="setting"><span>Motion detection</span><label class="switch"><input type="checkbox" name="motionOn" ${c.motion.enabled ? 'checked' : ''}><span></span></label></div>
         <div class="setting"><span>Send motion alerts</span><label class="switch"><input type="checkbox" name="notify" ${c.motion.notify !== false ? 'checked' : ''}><span></span></label></div>
@@ -498,15 +498,27 @@ function camerasAdminHtml() {
     <h2 style="margin-top:18px">Add a camera</h2>
     <form id="addCam" class="stack">
       <label class="f">Name<input type="text" name="name" placeholder="Back yard" required maxlength="40"></label>
-      <label class="f">Type<select name="type"><option value="browser">Old phone or webcam (opens in a browser)</option><option value="rtsp">IP camera (RTSP)</option></select></label>
+      <label class="f">Type<select name="type"><option value="browser">Old phone or webcam (opens in a browser)</option><option value="rtsp">IP camera (RTSP)</option><option value="device">USB camera, capture card or phone on USB (plugged into the computer running Spectacle)</option></select></label>
       <label class="f" data-rtsp hidden>Stream address<input type="url" name="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1"></label>
+      <div class="stack" data-device hidden><label class="f">Camera<select name="device"></select></label><div class="row"><button type="button" class="btn ghost" data-scan>Look again</button><span class="small muted" data-devnote></span></div>
+        <p class="small muted">Records 24/7 with no window open, and reconnects by itself if it's unplugged. <b>Phone on USB:</b> on Android 14 or newer, plug it in, tap the "USB" notification on the phone and choose <b>Webcam</b>, then tap Look again. Other phones: <a href="https://github.com/superclearice97-droid/spectacle/blob/main/docs/standalone.md#cameras-on-usb-webcams-capture-cards-and-phones" target="_blank" rel="noopener">see the guide</a>.</p></div>
       <label class="check"><input type="checkbox" name="ack" required> I'll only point this camera at places I'm allowed to record — not bathrooms, bedrooms of others without consent, or neighbours' private areas — and I'll let household members and guests know cameras are recording. <a href="/legal/recording-laws.html" target="_blank">Learn more</a></label>
       <button class="btn primary">Add camera</button><div class="err" id="addErr"></div></form></section>`;
 }
 function bindCameraAdmin() {
   const f = $('#addCam');
-  f.type.onchange = () => { $('[data-rtsp]', f).hidden = f.type.value !== 'rtsp'; };
-  f.onsubmit = async e => { e.preventDefault(); try { const r = await api('/api/cameras', { method: 'POST', body: { name: f.name.value, type: f.type.value, url: f.url.value, ackPlacement: f.ack.checked } }); toast('Camera added', r.camera.type === 'browser' ? 'Now open its pairing link on the camera phone.' : 'Connecting…'); await pageSettings(); const d = $(`[data-edit="${CSS.escape(r.camera.id)}"]`); if (d) d.closest('details').open = true; } catch (err) { $('#addErr').textContent = err.message; } };
+  const scan = async () => {
+    const note = $('[data-devnote]', f); note.textContent = 'Looking…';
+    try {
+      const { devices, inUse } = await api('/api/devices');
+      const free = devices.filter(d => !inUse.includes(d.path));
+      f.device.innerHTML = free.map(d => `<option value="${esc(d.path)}" ${d.problem ? 'disabled' : ''}>${esc(d.name)}${d.problem === 'denied' ? ' (no permission)' : ''}</option>`).join('') || '<option value="">No cameras found</option>';
+      note.textContent = !devices.length ? 'Nothing plugged in yet.' : free.some(d => d.problem === 'denied') ? 'Some cameras need permission: add the user running Spectacle to the "video" group.' : !free.length ? 'Every camera found is already added.' : '';
+    } catch (err) { note.textContent = err.message; }
+  };
+  $('[data-scan]', f).onclick = scan;
+  f.type.onchange = () => { $('[data-rtsp]', f).hidden = f.type.value !== 'rtsp'; $('[data-device]', f).hidden = f.type.value !== 'device'; if (f.type.value === 'device') scan(); };
+  f.onsubmit = async e => { e.preventDefault(); try { const dev = f.device.selectedOptions[0]; const r = await api('/api/cameras', { method: 'POST', body: { name: f.name.value, type: f.type.value, url: f.url.value, device: f.device.value, deviceName: dev ? dev.textContent : '', ackPlacement: f.ack.checked } }); toast('Camera added', r.camera.type === 'browser' ? 'Now open its pairing link on the camera phone.' : 'Connecting…'); await pageSettings(); const d = $(`[data-edit="${CSS.escape(r.camera.id)}"]`); if (d) d.closest('details').open = true; } catch (err) { $('#addErr').textContent = err.message; } };
   $$('[data-edit]').forEach(form => form.onsubmit = async e => {
     e.preventDefault(); const c = S.cameras.find(x => x.id === form.dataset.edit);
     const body = { name: form.name.value, record: form.record.checked, biome: form.biome.checked, motion: { enabled: form.motionOn.checked, notify: form.notify.checked, sensitivity: +form.sens.value } };
