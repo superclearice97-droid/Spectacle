@@ -41,6 +41,16 @@ async function call(p, body, method) {
     const st = await call('/api/state'); ok(st.user && st.user.role === 'admin', 'first account becomes admin');
     let rejected = false; try { await call('/api/cameras', { name: 'x', type: 'browser' }); } catch { rejected = true; } ok(rejected, 'camera needs placement acknowledgement');
     const { camera } = await call('/api/cameras', { name: 'Garden', type: 'browser', ackPlacement: true });
+    console.log('USB cameras');
+    ok(Array.isArray((await call('/api/devices')).devices), 'admin can list the computer\'s video devices');
+    for (const bad of ['/etc/passwd', '/dev/../etc/passwd', '/dev/v4l/by-id/../../sda']) { let r = false; try { await call('/api/cameras', { name: 'x', type: 'device', device: bad, ackPlacement: true }); } catch { r = true; } ok(r, 'rejects non-camera device path ' + bad); }
+    const usb = (await call('/api/cameras', { name: 'Porch', type: 'device', device: '/dev/video99', deviceName: 'Test cam', ackPlacement: true })).camera;
+    ok(usb.type === 'device' && usb.device === '/dev/video99' && usb.deviceName === 'Test cam', 'USB camera added');
+    let dup = false; try { await call('/api/cameras', { name: 'y', type: 'device', device: '/dev/video99', ackPlacement: true }); } catch { dup = true; } ok(dup, 'the same device can\'t be added twice');
+    await sleep(1500);
+    const usbNow = (await call('/api/cameras')).cameras.find(c => c.id === usb.id);
+    ok(usbNow.status !== 'live' && /plugged in/.test(usbNow.error || ''), 'unplugged USB camera says it is waiting to be connected');
+    await call('/api/cameras/' + usb.id, null, 'DELETE');
     const { token } = await call(`/api/cameras/${camera.id}/pair`, {});
     ok(token.length > 20, 'pairing token issued');
     const inv = await call('/api/invites', { role: 'member', shareUrl: 'https://login.tailscale.com/admin/invite/abc123' });

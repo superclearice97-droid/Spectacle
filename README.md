@@ -4,7 +4,7 @@
 
 Spectacle now includes a **Linux desktop app** that runs its own local camera server, and **Android independent mode** for capture, motion snapshots, recordings and offline species identification on the phone itself. Each works without the other. Shared-server connections remain optional.
 
-See [installation, capabilities and current limits](docs/standalone.md). Download builds from the **Linux desktop** and **Android app** workflow artifacts on the standalone branch/PR. Android independent mode monitors while its Camera screen is open; Linux supports its own webcam and RTSP cameras.
+See [installation, capabilities and current limits](docs/standalone.md). Download builds from the **Linux desktop** and **Android app** workflow artifacts on the standalone branch/PR. Android independent mode monitors while its Camera screen is open; Linux supports USB webcams, capture cards, phones connected by USB, and RTSP cameras, and keeps recording with its window closed.
 
 <h1 align="center">Spectacle</h1>
 <p align="center"><b>Private, self-hosted family security cameras — with a backyard biome log.</b></p>
@@ -25,7 +25,7 @@ Spectacle turns a Linux box and your cameras (IP cams or old phones) into a 24/7
 
 ## What it does
 
-- **Cameras, 24/7** — IP cameras (RTSP/ONVIF: Reolink, Amcrest, Tapo, Hikvision…) and any old phone or webcam (opened in a browser). Continuous recording in 10-minute MP4 files, auto-deleted after 14 days or when disk gets low.
+- **Cameras, 24/7** — IP cameras (RTSP/ONVIF: Reolink, Amcrest, Tapo, Hikvision…) any old phone or webcam (opened in a browser), and USB webcams, capture cards or phones plugged into the Spectacle computer. Continuous recording in 10-minute MP4 files, auto-deleted after 14 days or when disk gets low.
 - **Multiple people at once** — everyone signed in sees who else is online (avatars in the top bar) and which camera they're watching (avatars on each camera tile). Quick notes to everyone online from the Family tab.
 - **Motion alerts to the whole family** — phone notifications (Web Push), live in-app alerts, and optional [ntfy](https://ntfy.sh). Snapshot + jump to the moment in the recording. "Armed / Home" switch pauses alerts for everyone; each person can mute cameras for themselves.
 - **Two-way talk & doorbell**: talk to whoever is at a camera, like a Nest doorbell. Phone and webcam cameras can show a big **Ring** button; pressing it alerts the family (even when set to Home), and the alert opens straight to **Answer**. Calls are live through your own server and **never recorded**. The camera always plays a chime and shows who's talking. One person talks at a time; others can listen in.
@@ -80,6 +80,7 @@ fingerprint. Away from home, use Tailscale. Building and signing releases: [docs
 ## Adding cameras (Settings → Cameras, admin only)
 
 - **IP camera:** enter its RTSP address, e.g. `rtsp://user:pass@192.168.1.20:554/h264Preview_01_main`. H.264 cameras play everywhere; H.265 recordings may not play in every browser (choose H.264 in the camera's settings if you can).
+- **USB camera, capture card or phone on USB:** plug it into the Spectacle computer and pick it from the list. It records 24/7 with no browser open. Phones: [how to connect one by USB](docs/standalone.md#cameras-on-usb-webcams-capture-cards-and-phones).
 - **Old phone / webcam:** add it, tap **Get pairing link** and send the message to the camera phone. On it, install the app, tap **Paste my invite**, tick the notice and press Start (or open the link in Chrome). Keep the page open, screen on and charger plugged in (browsers stop the camera in the background). "Dim screen" blacks out the display. The microphone is never used for recording; with two-way talk on, it's used only during announced calls.
 
 ## Remote access (Tailscale)

@@ -109,6 +109,8 @@ Wants=network-online.target
 
 [Service]
 User=$RUN_USER
+# USB cameras and phones plugged into this computer
+SupplementaryGroups=video
 WorkingDirectory=$DIR
 ExecStart=$(command -v node) $DIR/server/index.js
 Restart=always

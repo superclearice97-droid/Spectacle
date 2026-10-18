@@ -1,22 +1,61 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, shell, session, utilityProcess, Notification, desktopCapturer } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, powerSaveBlocker, dialog, shell, session, utilityProcess, Notification, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
-const { prepareRuntime, readSetupCode } = require('./runtime');
+const { prepareRuntime, readSetupCode, autostartFile, autostartEntry, readPrefs, writePrefs } = require('./runtime');
 app.setName('Spectacle');
-let child, win, origin, quitting = false, cameraWindow, alertSocket;
+let child, win, origin, quitting = false, cameraWindow, alertSocket, tray, awakeId = null, prefs;
 const userData = app.getPath('userData');
 const root = app.isPackaged ? path.join(process.resourcesPath, 'spectacle') : path.join(__dirname, '..');
 const logFile = path.join(userData, 'desktop.log');
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => { win?.show(); win?.focus(); });
+  app.on('second-instance', () => showMain());
   app.whenReady().then(start).catch(async e => {
     await dialog.showMessageBox({ type: 'error', title: 'Spectacle could not start', message: e.message, detail: `Diagnostic log: ${logFile}` });
     app.quit();
   });
+}
+function showMain() { win?.show(); win?.focus(); }
+// 24/7: the cameras keep recording while the window is closed; quit from the tray icon or the Spectacle menu.
+const autostartPath = () => autostartFile(process.env.XDG_CONFIG_HOME || path.join(app.getPath('home'), '.config'));
+const autostartOn = () => fs.existsSync(autostartPath());
+function setAutostart(on) {
+  const file = autostartPath();
+  if (!on) return fs.rmSync(file, { force: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, autostartEntry(process.env.APPIMAGE || process.execPath));
+}
+function setKeepAwake(on) {
+  if (on && awakeId === null) awakeId = powerSaveBlocker.start('prevent-app-suspension');
+  if (!on && awakeId !== null) { powerSaveBlocker.stop(awakeId); awakeId = null; }
+  prefs.keepAwake = on; writePrefs(userData, prefs);
+}
+function backgroundItems() {
+  return [
+    { label: 'Start when I log in', type: 'checkbox', checked: autostartOn(), enabled: app.isPackaged,
+      click: i => { try { setAutostart(i.checked); } catch (e) { dialog.showErrorBox('Couldn’t change this', e.message); } buildMenus(); } },
+    { label: 'Keep computer awake (recommended for 24/7)', type: 'checkbox', checked: awakeId !== null, click: i => { setKeepAwake(i.checked); buildMenus(); } },
+  ];
+}
+function buildMenus() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Spectacle', submenu: [
+      { label: 'Add a USB camera, capture card or phone…', click: () => { showMain(); win?.loadURL(origin + '/#settings'); } },
+      { label: 'Use this computer’s camera', click: useWebcam },
+      { label: 'Record an event (camera or screen)', click: () => { const recorderWindow = makeWindow({ width: 900, height: 820 }); recorderWindow.loadURL(origin + '/event-recorder.html'); } },
+      { label: 'Show setup code', click: () => dialog.showMessageBox(win, { message: readSetupCode(userData) || 'Already set up. Sign in with your local account.' }) },
+      { label: 'Open local data folder', click: () => shell.openPath(path.join(userData, 'data')) },
+      { type: 'separator' }, ...backgroundItems(),
+      { type: 'separator' }, { label: 'Close window (keep recording)', accelerator: 'CmdOrCtrl+W', click: () => win?.hide() }, { label: 'Quit Spectacle (stop recording)', role: 'quit' },
+    ] }, { label: 'View', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
+  ]));
+  tray?.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Spectacle', click: showMain }, { type: 'separator' }, ...backgroundItems(),
+    { type: 'separator' }, { label: 'Quit Spectacle (stop recording)', click: () => app.quit() },
+  ]));
 }
 function log(data) { fs.appendFileSync(logFile, data.toString(), { mode: 0o600 }); }
 function safeURL(url) { try { return new URL(url).origin === origin; } catch { return false; } }
@@ -85,24 +124,32 @@ async function start() {
       let m; try { m = JSON.parse(e.data); } catch { return; }
       if (m.type !== 'alert' || !Notification.isSupported()) return;
       const n = new Notification({ title: String(m.title || 'Spectacle'), body: String(m.body || '') });
-      n.on('click', () => { win?.show(); win?.focus(); if (typeof m.url === 'string' && m.url.startsWith('/#')) win?.loadURL(origin + m.url); }); n.show();
+      n.on('click', () => { showMain(); if (typeof m.url === 'string' && m.url.startsWith('/#')) win?.loadURL(origin + m.url); }); n.show();
     };
     ws.onerror = () => {};
   };
   session.defaultSession.cookies.on('changed', connectAlerts);
   await connectAlerts();
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'Spectacle', submenu: [
-      { label: 'Use this computer’s camera', click: useWebcam },
-      { label: 'Record an event (camera or screen)', click: () => { const recorderWindow = makeWindow({ width: 900, height: 820 }); recorderWindow.loadURL(origin + '/event-recorder.html'); } },
-      { label: 'Show setup code', click: () => dialog.showMessageBox(win, { message: readSetupCode(userData) || 'Already set up. Sign in with your local account.' }) },
-      { label: 'Open local data folder', click: () => shell.openPath(path.join(userData, 'data')) },
-      { type: 'separator' }, { role: 'quit' },
-    ] }, { label: 'View', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
-  ]));
-  win = makeWindow(); win.on('closed', () => { win = null; });
+  prefs = readPrefs(userData);
+  if (prefs.keepAwake !== false) setKeepAwake(true);
+  try {
+    tray = new Tray(nativeImage.createFromPath(path.join(root, 'public', 'icon-192.png')).resize({ width: 22, height: 22 }));
+    tray.setToolTip('Spectacle — cameras recording'); tray.on('click', showMain);
+  } catch (e) { log(`tray unavailable: ${e.message}\n`); }
+  buildMenus();
+  const hidden = process.argv.includes('--hidden');   // started at login: run in the background
+  win = makeWindow({ show: !hidden }); win.on('closed', () => { win = null; });
+  win.on('close', e => {
+    if (quitting) return;
+    e.preventDefault(); win.hide();
+    if (!prefs.toldBackground && Notification.isSupported()) {
+      new Notification({ title: 'Spectacle is still recording', body: 'Cameras keep running in the background. Open Spectacle from its tray icon or your app menu; quit from there to stop.' }).show();
+      prefs.toldBackground = true; writePrefs(userData, prefs);
+    }
+  });
   await win.loadURL(origin);
   const code = readSetupCode(userData);
+  if (code) showMain();   // first run always opens, even when started hidden
   if (code) await dialog.showMessageBox(win, { title: 'Set up this computer', message: `Your setup code: ${code}`, detail: 'Create your local admin account in the app. This computer works independently; no phone, Tailscale, or external server is needed.' });
 }
 async function api(route, body) {
@@ -123,11 +170,12 @@ async function useWebcam() {
     const existing = cameras.find(c => c.name === 'This computer' && c.type === 'browser');
     const camera = existing || (await api('/api/cameras', { name: 'This computer', type: 'browser', ackPlacement: true })).camera;
     const { token } = await api(`/api/cameras/${camera.id}/pair`, {});
-    cameraWindow = makeWindow({ width: 800, height: 700, title: 'Spectacle — local webcam' });
+    // Keeps capturing while hidden or behind other windows.
+    cameraWindow = makeWindow({ width: 800, height: 700, title: 'Spectacle — local webcam', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
     await cameraWindow.loadURL(origin + '/camera#token=' + encodeURIComponent(token));
   } catch (e) { await dialog.showMessageBox(win, { type: 'error', message: e.message }); }
 }
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => {});   // keep the local server and cameras running; quit from the tray or menu
 app.on('before-quit', e => {
   if (quitting || !child) return;
   e.preventDefault(); quitting = true; alertSocket?.close();

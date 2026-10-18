@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const { MotionDetector, MW, MH } = require('./motion');
 const vault = require('./vault');
+const devices = require('./devices');
 
 // Where segments are written while they're still being recorded. RAM (/dev/shm) when it has room, so
 // unencrypted footage never touches the disk; finished segments are encrypted into data/recordings.
@@ -35,6 +36,7 @@ class CameraPipe extends EventEmitter {
     const { cam, cfg } = this; const live = cfg.live;
     const a = ['-hide_banner', '-loglevel', 'error', '-nostdin'];
     if (cam.type === 'rtsp') a.push('-protocol_whitelist', 'rtsp,rtsps,tcp,udp,tls,rtp,srtp,crypto', '-rtsp_transport', 'tcp', '-timeout', '10000000', '-fflags', 'nobuffer', '-i', cam.url);
+    else if (cam.type === 'device') a.push('-f', 'v4l2', ...(this.devInput || []), '-thread_queue_size', '512', '-i', cam.device);
     else a.push('-protocol_whitelist', 'pipe', '-f', 'webm', '-fflags', '+genpts', '-i', 'pipe:0');
     // 1) live view
     a.push('-map', '0:v:0', '-an', '-vf', `fps=${live.fps},scale='min(${live.width},iw)':-2`, '-q:v', String(live.quality), '-f', 'mjpeg', 'pipe:1');
@@ -55,8 +57,23 @@ class CameraPipe extends EventEmitter {
   }
   start() {
     this.stopped = false;
-    if (this.proc) return;
+    if (this.proc || this.probing) return;
     this.setStatus('connecting');
+    // A USB camera or phone: find the best format it offers each time it (re)connects.
+    if (this.cam.type === 'device' && !this.devInput) {
+      this.probing = true;
+      devices.probe(this.cfg.ffmpeg, this.cam.device).then(r => {
+        this.probing = false;
+        if (this.stopped) return;
+        if (r.error) {
+          this.lastError = r.error === 'denied' ? 'No permission to use this camera. Add the user running Spectacle to the "video" group.'
+            : fs.existsSync(this.cam.device) ? 'This device is busy or doesn\'t send video.' : 'Not plugged in. Waiting for it to be connected…';
+          this.setStatus('offline'); return this.retryLater();
+        }
+        this.devInput = devices.inputArgs(r.formats); this.start();
+      });
+      return;
+    }
     const p = this.proc = spawn(this.cfg.ffmpeg, this.args(), { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
     let jbuf = Buffer.alloc(0), gbuf = Buffer.alloc(0), errTail = '';
     p.stdout.on('data', d => {
@@ -82,11 +99,14 @@ class CameraPipe extends EventEmitter {
       this.emit('ended');
       if (errTail.trim()) this.lastError = errTail.trim().split('\n').pop();
       this.setStatus('offline');
-      if (!this.stopped && this.cam.type === 'rtsp') {
-        setTimeout(() => !this.stopped && this.start(), this.backoff);
-        this.backoff = Math.min(this.backoff * 2, 30000);
-      }
+      if (this.cam.type === 'device') { this.devInput = null; if (errTail.trim() && !fs.existsSync(this.cam.device)) this.lastError = 'Not plugged in. Waiting for it to be connected…'; }
+      if (this.cam.type !== 'browser') this.retryLater();
     });
+  }
+  retryLater() {
+    if (this.stopped) return;
+    setTimeout(() => !this.stopped && this.start(), this.backoff);
+    this.backoff = Math.min(this.backoff * 2, 30000);
   }
   feed(chunk) { if (this.proc && this.proc.stdin.writable) this.proc.stdin.write(chunk); }
   stop() {
@@ -125,7 +145,7 @@ class CameraManager extends EventEmitter {
       p.on('ended', () => setTimeout(() => this.seal(cam.id), 1500));
       this.pipes.set(cam.id, p);
     }
-    if (cam.type === 'rtsp' && cam.enabled !== false) p.start();
+    if (cam.type !== 'browser' && cam.enabled !== false) p.start();
     return p;
   }
   restart(cam) { const p = this.pipes.get(cam.id); if (p) { p.stop(); this.pipes.delete(cam.id); } return this.ensure(cam); }

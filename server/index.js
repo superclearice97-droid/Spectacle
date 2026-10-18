@@ -9,6 +9,7 @@ const { loadConfig } = require('./lib/config');
 const { Store } = require('./lib/store');
 const { Auth, LEGAL_VERSION } = require('./lib/auth');
 const { CameraManager } = require('./lib/cameras');
+const videoDevices = require('./lib/devices');
 const { Notifier } = require('./lib/notify');
 const { Identifier } = require('./lib/species');
 const { Biome } = require('./lib/biome');
@@ -223,7 +224,7 @@ const imageType = b => b.length > 12 && ((b[0] === 0xff && b[1] === 0xd8) || b.s
 const PUSH_HOSTS = /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w-]+\.push\.services\.mozilla\.com|web\.push\.apple\.com|[\w.-]+\.notify\.windows\.com|[\w.-]+\.push\.apple\.com)\//;
 const okPush = u => typeof u === 'string' && u.length < 2000 && PUSH_HOSTS.test(u);
 const within = (base, p) => { const r = path.resolve(base, p); return r.startsWith(path.resolve(base) + path.sep) ? r : null; };
-const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), talk: { enabled: !!(c.talk && c.talk.enabled), doorbell: !!(c.talk && c.talk.doorbell), supported: c.type === 'browser', session: talk.state(c.id) }, enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
+const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), talk: { enabled: !!(c.talk && c.talk.enabled), doorbell: !!(c.talk && c.talk.doorbell), supported: c.type === 'browser', session: talk.state(c.id) }, enabled: c.enabled !== false, hasUrl: !!c.url, device: c.device, deviceName: c.deviceName, ...cams.status(c.id) });
 
 // ---------------- routes ----------------
 async function handle(req, res) {
@@ -304,12 +305,15 @@ async function handle(req, res) {
 
   if (p === '/api/armed' && m === 'POST') { if (!need()) return; const b = await bodyJSON(req); settings.data.armed = !!b.armed; settings.save(); hub.broadcast({ type: 'armed', armed: settings.data.armed, by: user.name }); return json(res, 200, { armed: settings.data.armed }); }
   if (p === '/api/cameras' && m === 'GET') { if (!need()) return; return json(res, 200, { cameras: cams.list.map(camView) }); }
+  if (p === '/api/devices' && m === 'GET') { if (!need('admin')) return; return json(res, 200, { devices: await videoDevices.list(cfg.ffmpeg), inUse: cams.list.filter(c => c.type === 'device').map(c => c.device) }); }
   if (p === '/api/cameras' && m === 'POST') {
     if (!need('admin')) return; const b = await bodyJSON(req);
     if (!b.ackPlacement) return json(res, 400, { error: 'Please confirm the camera placement notice' });
-    const type = b.type === 'rtsp' ? 'rtsp' : 'browser';
+    const type = ['rtsp', 'device'].includes(b.type) ? b.type : 'browser';
     if (type === 'rtsp' && !/^rtsps?:\/\/\S+$/i.test(b.url || '')) return json(res, 400, { error: 'Enter an rtsp:// address' });
-    const cam = { id: crypto.randomUUID().slice(0, 8), name: String(b.name || 'Camera').slice(0, 40), type, url: type === 'rtsp' ? b.url : undefined, record: b.record !== false, biome: b.biome !== false, audio: false, motion: { enabled: true, sensitivity: 5, notify: true }, created: new Date().toISOString(), placementAck: { by: user.id, at: new Date().toISOString() } };
+    if (type === 'device' && !videoDevices.validDevice(b.device)) return json(res, 400, { error: 'Choose a camera from the list' });
+    if (type === 'device' && cams.list.some(c => c.type === 'device' && c.device === b.device)) return json(res, 400, { error: 'That camera is already added' });
+    const cam = { id: crypto.randomUUID().slice(0, 8), name: String(b.name || 'Camera').slice(0, 40), type, url: type === 'rtsp' ? b.url : undefined, ...(type === 'device' ? { device: b.device, deviceName: String(b.deviceName || '').slice(0, 60) || undefined } : {}), record: b.record !== false, biome: b.biome !== false, audio: false, motion: { enabled: true, sensitivity: 5, notify: true }, created: new Date().toISOString(), placementAck: { by: user.id, at: new Date().toISOString() } };
     settings.data.cameras.push(cam); settings.save(); cams.ensure(cam);
     hub.broadcast({ type: 'cameras' }); return json(res, 200, { camera: camView(cam) });
   }

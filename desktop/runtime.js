@@ -24,4 +24,11 @@ function readSetupCode(userData) {
   if (!fs.existsSync(file)) return null;
   return /setup code: (\S+)/.exec(fs.readFileSync(file, 'utf8'))?.[1] || null;
 }
-module.exports = { prepareRuntime, readSetupCode };
+// Login autostart (XDG): ~/.config/autostart/spectacle.desktop, started hidden so it just records.
+const autostartFile = configHome => path.join(configHome, 'autostart', 'spectacle.desktop');
+// Desktop-entry quoting escapes " ` $ \ with a backslash, then string escaping doubles every backslash.
+const quoteExec = p => '"' + p.replace(/["`$\\]/g, c => '\\\\' + c) + '"';
+const autostartEntry = exe => `[Desktop Entry]\nType=Application\nName=Spectacle\nComment=Keeps your cameras recording\nExec=${quoteExec(exe)} --hidden\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`;
+function readPrefs(userData) { try { return JSON.parse(fs.readFileSync(path.join(userData, 'desktop-prefs.json'), 'utf8')); } catch { return {}; } }
+function writePrefs(userData, prefs) { fs.writeFileSync(path.join(userData, 'desktop-prefs.json'), JSON.stringify(prefs), { mode: 0o600 }); }
+module.exports = { prepareRuntime, readSetupCode, autostartFile, autostartEntry, readPrefs, writePrefs };
