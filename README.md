@@ -4,7 +4,7 @@
 
 Spectacle now includes a **Linux desktop app** that runs its own local camera server, and **Android independent mode** for capture, motion snapshots, recordings and offline species identification on the phone itself. Each works without the other. Shared-server connections remain optional.
 
-See [installation, capabilities and current limits](docs/standalone.md). Download builds from the **Linux desktop** and **Android app** workflow artifacts on the standalone branch/PR. Android independent mode monitors while its Camera screen is open; Linux supports its own webcam and RTSP cameras.
+See [installation, capabilities and current limits](docs/standalone.md). Download builds from the **Linux desktop** and **Android app** workflow artifacts from the latest successful run of each workflow. Android independent mode monitors while its Camera screen is open; Linux supports its own webcam and RTSP cameras.
 
 <h1 align="center">Spectacle</h1>
 <p align="center"><b>Private, self-hosted family security cameras — with a backyard biome log.</b></p>
@@ -29,7 +29,7 @@ Spectacle turns a Linux box and your cameras (IP cams or old phones) into a 24/7
 - **Multiple people at once** — everyone signed in sees who else is online (avatars in the top bar) and which camera they're watching (avatars on each camera tile). Quick notes to everyone online from the Family tab.
 - **Motion alerts to the whole family** — phone notifications (Web Push), live in-app alerts, and optional [ntfy](https://ntfy.sh). Snapshot + jump to the moment in the recording. "Armed / Home" switch pauses alerts for everyone; each person can mute cameras for themselves.
 - **Two-way talk & doorbell**: talk to whoever is at a camera, like a Nest doorbell. Phone and webcam cameras can show a big **Ring** button; pressing it alerts the family (even when set to Home), and the alert opens straight to **Answer**. Calls are live through your own server and **never recorded**. The camera always plays a chime and shows who's talking. One person talks at a time; others can listen in.
-- **Smart detection (optional)**: alerts say *"Person in Driveway"* or *"Car at Front door"* instead of just "Motion". You can draw zones on each camera, set "only alert if they stay 30 seconds", and see live labels while you watch. Parked cars and other things that never move don't trigger alerts. About as accurate as YOLO26x, using the Apache-2.0 [D-FINE](https://github.com/Peterande/D-FINE) detector, entirely on your server.
+- **Smart detection (optional)**: alerts say *"Person in Driveway"* or *"Car at Front door"* instead of just "Motion". You can draw zones on each camera, set "only alert if they stay 30 seconds", and see live labels while you watch. Parked cars and other things that never move don't trigger alerts. Built on the Apache-2.0 [D-FINE](https://github.com/Peterande/D-FINE) detector, which runs entirely on your server. Accuracy figures are the model authors' published COCO results; Spectacle's tests check that detection runs and behaves correctly, not accuracy on your camera.
 - **Biome log** — about once a minute (only when the scene changes) and whenever something small moves, each camera's view is checked against **4,086 species** (1,021 insects, 2,101 plants, 964 birds). Each find gets a folder `data/biome/<Group>/<Order>/<Family>/<Species (Common name)>/` with `info.md` (what it is, classification, where/when seen) and `photos/`. The same folders are browsable in the app, where you confirm or reject each ID. You can also identify any photo you take.
 - **Fully offline identification** — the models run on your server with a built-in engine; photos never leave home. Plain-language explanations are an **optional** one-time download (`npm run species-db`) of Wikipedia summaries + GBIF taxonomy (+ optional reference photos), stored in `data/species-db/`.
 
@@ -43,9 +43,9 @@ cd spectacle
 
 This installs Node 22 + ffmpeg if needed, makes an HTTPS certificate, asks whether you want the optional species explanations, and installs a `spectacle` systemd service so it runs 24/7 and starts on boot. No `npm install` is needed — there are no dependencies.
 
-Then open `https://<server-ip>:8443` on your phone, accept the certificate warning, and create the admin account using the **setup code** the installer printed (also in `data/SETUP-CODE.txt` until it's used).
+Then open `https://<server-ip>:8443` on your phone, accept the certificate warning (the certificate is self-signed; the Android app pins it, a browser cannot, so only do this on your own network or through Tailscale), and create the admin account using the **setup code** the installer printed (also in `data/SETUP-CODE.txt` until it's used).
 
-Everything Spectacle stores is encrypted on the server; see [SECURITY.md](SECURITY.md). To export a recording or photo outside the app, run `npm run decrypt -- <encrypted file> <output file>` on the server.
+Accounts, settings, logs, photos and finished recordings are encrypted on the server's disk; a recording segment still in progress is held in memory until it finishes. See [SECURITY.md](SECURITY.md). To export a recording or photo outside the app, run `npm run decrypt -- <encrypted file> <output file>` on the server.
 
 Manual run: `npm start` · Tests: `npm test` · Logs: `journalctl -u spectacle -f`
 
