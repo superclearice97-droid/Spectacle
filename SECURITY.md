@@ -19,6 +19,7 @@ Only the latest commit on `main` receives security fixes.
 ## Hardening your installation
 
 - Reach Spectacle remotely through Tailscale (or another VPN). **Never** port-forward it to the internet.
+- Prefer `rtsps://` camera addresses. Plain `rtsp://` is accepted but is **not encrypted or authenticated end to end**, so anyone on the same network could watch or tamper with the stream. Keep such cameras on a separate network.
 - Use long, unique passwords; remove members who no longer need access.
 - Keep the server's OS, Node.js and ffmpeg updated.
 - Put IP cameras on a separate network or block their internet access in your router.
