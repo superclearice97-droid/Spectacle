@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server/index.js",
     "species-db": "node server/scripts/build-species-db.js",
-    "test": "node test/vault-unit.js && node test/auth-unit.js && node test/models-integrity.js && node test/smoke.js && node test/smart-unit.js",
+    "test": "node test/vault-unit.js && node test/auth-unit.js && node test/models-integrity.js && node test/rtsp-unit.js && node test/smoke.js && node test/smart-unit.js",
     "decrypt": "node server/scripts/decrypt.js",
     "smart-detection": "node server/scripts/setup-smart.js"
   },

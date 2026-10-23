@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { loadConfig } = require('./lib/config');
 const { Store } = require('./lib/store');
 const { Auth, LEGAL_VERSION } = require('./lib/auth');
-const { CameraManager } = require('./lib/cameras');
+const { CameraManager, isPlainRtsp } = require('./lib/cameras');
 const { Notifier } = require('./lib/notify');
 const { Identifier } = require('./lib/species');
 const { Biome } = require('./lib/biome');
@@ -223,7 +223,7 @@ const imageType = b => b.length > 12 && ((b[0] === 0xff && b[1] === 0xd8) || b.s
 const PUSH_HOSTS = /^https:\/\/(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w-]+\.push\.services\.mozilla\.com|web\.push\.apple\.com|[\w.-]+\.notify\.windows\.com|[\w.-]+\.push\.apple\.com)\//;
 const okPush = u => typeof u === 'string' && u.length < 2000 && PUSH_HOSTS.test(u);
 const within = (base, p) => { const r = path.resolve(base, p); return r.startsWith(path.resolve(base) + path.sep) ? r : null; };
-const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), talk: { enabled: !!(c.talk && c.talk.enabled), doorbell: !!(c.talk && c.talk.doorbell), supported: c.type === 'browser', session: talk.state(c.id) }, enabled: c.enabled !== false, hasUrl: !!c.url, ...cams.status(c.id) });
+const camView = c => ({ id: c.id, name: c.name, type: c.type, record: c.record !== false, biome: c.biome !== false, audio: !!c.audio, motion: c.motion, smart: camSmart(c), talk: { enabled: !!(c.talk && c.talk.enabled), doorbell: !!(c.talk && c.talk.doorbell), supported: c.type === 'browser', session: talk.state(c.id) }, enabled: c.enabled !== false, hasUrl: !!c.url, plainStream: c.type === 'rtsp' && isPlainRtsp(c.url), ...cams.status(c.id) });
 
 // ---------------- routes ----------------
 async function handle(req, res) {

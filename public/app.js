@@ -23,6 +23,7 @@ async function api(path, opts = {}) {
   return j;
 }
 
+const PLAIN_RTSP_WARNING = 'This address starts with rtsp://, which is not encrypted. Anyone on your network could watch or tamper with the video, and the camera password may be exposed. Use rtsps:// if your camera supports it, and keep the camera on a separate network.';
 function toast(title, body, kind = '', onclick) {
   const t = document.createElement('div');
   t.className = 'toast ' + kind; t.innerHTML = `<b>${esc(title)}</b>${body ? `<span class="small muted">${esc(body)}</span>` : ''}`;
@@ -483,7 +484,7 @@ function camerasAdminHtml() {
   return `<section class="card"><h2>Cameras</h2><div class="stack" id="camList">${S.cameras.map(c => `<details class="card" style="padding:12px 14px"><summary class="row spread" style="cursor:pointer"><span><span class="dot ${esc(c.status)}"></span> <b>${esc(c.name)}</b> <span class="muted small">${c.type === 'rtsp' ? 'IP camera' : 'Phone / webcam'}</span></span></summary>
       <form class="stack" data-edit="${esc(c.id)}" style="margin-top:12px">
         <label class="f">Name<input type="text" name="name" value="${esc(c.name)}" maxlength="40"></label>
-        ${c.type === 'rtsp' ? `<label class="f">Stream address<input type="url" name="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1" ${c.hasUrl ? 'value="(saved — leave to keep)"' : ''}></label>` : `<div class="row"><button type="button" class="btn" data-pair="${esc(c.id)}">Get pairing link</button><span class="small muted">Open it on the phone that will be the camera.</span></div><div data-pairout="${esc(c.id)}"></div>`}
+        ${c.type === 'rtsp' ? `<label class="f">Stream address<input type="url" name="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1" ${c.hasUrl ? 'value="(saved — leave to keep)"' : ''}></label>${c.plainStream ? `<div class="err small" role="alert">${esc(PLAIN_RTSP_WARNING)}</div>` : ''}` : `<div class="row"><button type="button" class="btn" data-pair="${esc(c.id)}">Get pairing link</button><span class="small muted">Open it on the phone that will be the camera.</span></div><div data-pairout="${esc(c.id)}"></div>`}
         <div class="setting"><span>Record 24/7</span><label class="switch"><input type="checkbox" name="record" ${c.record ? 'checked' : ''}><span></span></label></div>
         <div class="setting"><span>Motion detection</span><label class="switch"><input type="checkbox" name="motionOn" ${c.motion.enabled ? 'checked' : ''}><span></span></label></div>
         <div class="setting"><span>Send motion alerts</span><label class="switch"><input type="checkbox" name="notify" ${c.motion.notify !== false ? 'checked' : ''}><span></span></label></div>
@@ -500,12 +501,15 @@ function camerasAdminHtml() {
       <label class="f">Name<input type="text" name="name" placeholder="Back yard" required maxlength="40"></label>
       <label class="f">Type<select name="type"><option value="browser">Old phone or webcam (opens in a browser)</option><option value="rtsp">IP camera (RTSP)</option></select></label>
       <label class="f" data-rtsp hidden>Stream address<input type="url" name="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1"></label>
+      <div class="err small" role="alert" id="rtspWarn" hidden>${esc(PLAIN_RTSP_WARNING)}</div>
       <label class="check"><input type="checkbox" name="ack" required> I'll only point this camera at places I'm allowed to record — not bathrooms, bedrooms of others without consent, or neighbours' private areas — and I'll let household members and guests know cameras are recording. <a href="/legal/recording-laws.html" target="_blank">Learn more</a></label>
       <button class="btn primary">Add camera</button><div class="err" id="addErr"></div></form></section>`;
 }
 function bindCameraAdmin() {
   const f = $('#addCam');
-  f.type.onchange = () => { $('[data-rtsp]', f).hidden = f.type.value !== 'rtsp'; };
+  const showRtspWarn = () => { $('#rtspWarn').hidden = !(f.type.value === 'rtsp' && /^rtsp:\/\//i.test(f.url.value.trim())); };
+  f.type.onchange = () => { $('[data-rtsp]', f).hidden = f.type.value !== 'rtsp'; showRtspWarn(); };
+  f.url.oninput = showRtspWarn;
   f.onsubmit = async e => { e.preventDefault(); try { const r = await api('/api/cameras', { method: 'POST', body: { name: f.name.value, type: f.type.value, url: f.url.value, ackPlacement: f.ack.checked } }); toast('Camera added', r.camera.type === 'browser' ? 'Now open its pairing link on the camera phone.' : 'Connecting…'); await pageSettings(); const d = $(`[data-edit="${CSS.escape(r.camera.id)}"]`); if (d) d.closest('details').open = true; } catch (err) { $('#addErr').textContent = err.message; } };
   $$('[data-edit]').forEach(form => form.onsubmit = async e => {
     e.preventDefault(); const c = S.cameras.find(x => x.id === form.dataset.edit);
