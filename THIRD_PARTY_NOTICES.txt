@@ -16,7 +16,10 @@ Source:   https://github.com/google-coral/test_data
 Owner:    Google LLC (Coral project). MobileNet V2 classifiers trained on the
           iNaturalist 2017 dataset.
 License:  Apache License 2.0 — full text in models/LICENSE-coral-test-data.txt
-Changes:  none (files are unmodified). Spectacle runs them with its own
+Changes:  none (files are unmodified).
+Checksums: models/SHA256SUMS lists the SHA-256 of each committed file and CI
+          verifies it (test/models-integrity.js). These were recorded from the
+          committed files; compare them with the upstream copies to audit. Spectacle runs them with its own
           interpreter (server/lib/tflite.js).
 
 ------------------------------------------------------------------------------
