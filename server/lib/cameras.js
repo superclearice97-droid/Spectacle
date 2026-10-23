@@ -209,4 +209,7 @@ class CameraManager extends EventEmitter {
   }
 }
 
-module.exports = { CameraManager };
+/* rtsp:// is unencrypted and unauthenticated end to end; rtsps:// is TLS. Used to warn the family admin. */
+const isPlainRtsp = url => /^rtsp:\/\//i.test(String(url || ''));
+
+module.exports = { CameraManager, isPlainRtsp };
