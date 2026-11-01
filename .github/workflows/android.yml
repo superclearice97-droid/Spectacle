@@ -101,7 +101,7 @@ jobs:
         with:
           node-version: 22
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: Spectacle-apk
       - uses: actions/setup-java@v5
@@ -136,7 +136,7 @@ jobs:
     needs: [build, emulator-test]   # only publish an APK that passed the emulator test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: Spectacle-apk
       - name: Publish release
