@@ -34,7 +34,7 @@ jobs:
             weights: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_x_obj2coco.pth
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Get D-FINE (pinned)
