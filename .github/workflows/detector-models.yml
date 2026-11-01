@@ -33,7 +33,7 @@ jobs:
             config: configs/dfine/objects365/dfine_hgnetv2_x_obj2coco.yml
             weights: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_x_obj2coco.pth
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -61,7 +61,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           path: out
