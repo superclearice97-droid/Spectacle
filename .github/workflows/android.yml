@@ -38,7 +38,7 @@ jobs:
           echo "release=$REL" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Version $V, publish release: $REL"
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: Spectacle-apk
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
